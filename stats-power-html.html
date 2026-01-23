@@ -4,47 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Statistical Power Visualization</title>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/recharts@2.5.0/dist/Recharts.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body>
     <div id="root"></div>
     
     <script type="text/babel">
-        const { useState, useMemo } = React;
-        const { ComposedChart, Line, XAxis, YAxis, CartesianGrid, Area, ReferenceLine, Legend, ResponsiveContainer } = Recharts;
+        function StatisticalPowerTTest() {
+            const [stage, setStage] = React.useState(1);
+            const [range95, setRange95] = React.useState(25);
+            const [meanDiff, setMeanDiff] = React.useState(4);
+            const [sampleSize, setSampleSize] = React.useState(20);
+            const [freeResponse1, setFreeResponse1] = React.useState('');
+            const [mcq1Answer, setMcq1Answer] = React.useState('');
+            const [mcq2Answer, setMcq2Answer] = React.useState('');
+            const [freeResponse2, setFreeResponse2] = React.useState('');
 
-        // Simple Slider component
-        const Slider = ({ value, onValueChange, min, max, step, className }) => {
-            return (
-                <input
-                    type="range"
-                    min={min}
-                    max={max}
-                    step={step}
-                    value={value[0]}
-                    onChange={(e) => onValueChange([parseFloat(e.target.value)])}
-                    className={`w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer ${className}`}
-                    style={{
-                        background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${((value[0] - min) / (max - min)) * 100}%, #e5e7eb ${((value[0] - min) / (max - min)) * 100}%, #e5e7eb 100%)`
-                    }}
-                />
-            );
-        };
-
-        const StatisticalPowerTTest = () => {
-            const [range95, setRange95] = useState(25);
-            const [meanDiff, setMeanDiff] = useState(4);
-            const [sampleSize, setSampleSize] = useState(20);
-            const [stage, setStage] = useState(1);
-            const [freeResponse1, setFreeResponse1] = useState('');
-            const [mcq1Answer, setMcq1Answer] = useState('');
-            const [mcq2Answer, setMcq2Answer] = useState('');
-            const [freeResponse2, setFreeResponse2] = useState('');
-
+            // Calculate power
             const normalCDF = (x) => {
                 const t = 1 / (1 + 0.2316419 * Math.abs(x));
                 const d = 0.3989423 * Math.exp(-x * x / 2);
@@ -52,81 +31,341 @@
                 return x > 0 ? 1 - prob : prob;
             };
 
-            const normalPDF = (x, mean, sd) => {
-                return (1 / (sd * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / sd, 2));
-            };
+            const sd = range95 / (2 * 1.96);
+            const seDiff = sd * Math.sqrt(2 / sampleSize);
+            const df = 2 * sampleSize - 2;
+            const tCritical = df > 30 ? 1.96 : 2.042;
+            const criticalDiff = tCritical * seDiff;
+            const zUpper = (criticalDiff - meanDiff) / seDiff;
+            const zLower = (-criticalDiff - meanDiff) / seDiff;
+            const powerUpper = 1 - normalCDF(zUpper);
+            const powerLower = normalCDF(zLower);
+            const power = Math.max(0, Math.min(1, powerUpper + powerLower));
 
-            const calculations = useMemo(() => {
-                const sd = range95 / (2 * 1.96);
-                const cohensD = meanDiff / sd;
-                const seDiff = sd * Math.sqrt(2 / sampleSize);
-                const df = 2 * sampleSize - 2;
-                const tCritical = df > 30 ? 1.96 : 2.042;
-                const criticalDiff = tCritical * seDiff;
-                const zUpper = (criticalDiff - meanDiff) / seDiff;
-                const zLower = (-criticalDiff - meanDiff) / seDiff;
-                const powerUpper = 1 - normalCDF(zUpper);
-                const powerLower = normalCDF(zLower);
-                const power = powerUpper + powerLower;
-
-                return {
-                    sd,
-                    cohensD,
-                    seDiff,
-                    criticalDiff,
-                    power: Math.max(0, Math.min(1, power)),
-                    tCritical,
-                    powerUpper,
-                    powerLower
+            // Generate simple canvas-based visualization
+            React.useEffect(() => {
+                const canvas = document.getElementById('powerChart');
+                if (!canvas) return;
+                
+                const ctx = canvas.getContext('2d');
+                const width = canvas.width;
+                const height = canvas.height;
+                
+                // Clear canvas
+                ctx.clearRect(0, 0, width, height);
+                
+                // Helper function for normal PDF
+                const normalPDF = (x, mean, sd) => {
+                    return (1 / (sd * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / sd, 2));
                 };
-            }, [range95, meanDiff, sampleSize]);
-
-            const generateData = useMemo(() => {
-                const data = [];
-                const seDiff = calculations.seDiff;
-                const nullMean = 0;
-                const altMean = meanDiff;
-                const minX = -30;
-                const maxX = 40;
-                const steps = 300;
-                const stepSize = (maxX - minX) / steps;
-                const lowerCritical = -calculations.criticalDiff;
-                const upperCritical = calculations.criticalDiff;
-
-                for (let i = 0; i <= steps; i++) {
-                    const x = minX + i * stepSize;
-                    const nullDist = normalPDF(x, nullMean, seDiff);
-                    const altDist = normalPDF(x, altMean, seDiff);
-                    const alphaRegion = (x < lowerCritical || x > upperCritical) ? nullDist : 0;
-                    const powerRegion = (x < lowerCritical || x > upperCritical) ? altDist : 0;
-                    const betaRegion = (x >= lowerCritical && x <= upperCritical) ? altDist : 0;
-
-                    data.push({
-                        x: x.toFixed(3),
-                        null: nullDist,
-                        alternative: altDist,
-                        alpha: alphaRegion,
-                        power: powerRegion,
-                        beta: betaRegion
-                    });
+                
+                // Set up scales
+                const xMin = -30;
+                const xMax = 40;
+                const xRange = xMax - xMin;
+                const margin = { left: 60, right: 30, top: 30, bottom: 50 };
+                const plotWidth = width - margin.left - margin.right;
+                const plotHeight = height - margin.top - margin.bottom;
+                const xScale = plotWidth / xRange;
+                const yMax = 0.4;
+                const yScale = plotHeight / yMax;
+                
+                const toCanvasX = (x) => margin.left + (x - xMin) * xScale;
+                const toCanvasY = (y) => margin.top + plotHeight - y * yScale;
+                
+                // Fill alpha regions (red shaded areas under null distribution)
+                if (stage >= 1) {
+                    ctx.fillStyle = 'rgba(239, 68, 68, 0.3)';
+                    
+                    // Left alpha region
+                    ctx.beginPath();
+                    ctx.moveTo(toCanvasX(-criticalDiff), toCanvasY(0));
+                    for (let x = -criticalDiff; x >= xMin; x -= 0.5) {
+                        const y = normalPDF(x, 0, seDiff);
+                        ctx.lineTo(toCanvasX(x), toCanvasY(y));
+                    }
+                    ctx.lineTo(toCanvasX(xMin), toCanvasY(0));
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    // Right alpha region
+                    ctx.beginPath();
+                    ctx.moveTo(toCanvasX(criticalDiff), toCanvasY(0));
+                    for (let x = criticalDiff; x <= xMax; x += 0.5) {
+                        const y = normalPDF(x, 0, seDiff);
+                        ctx.lineTo(toCanvasX(x), toCanvasY(y));
+                    }
+                    ctx.lineTo(toCanvasX(xMax), toCanvasY(0));
+                    ctx.closePath();
+                    ctx.fill();
                 }
-
-                return { data, nullMean, altMean, lowerCritical, upperCritical };
-            }, [range95, meanDiff, sampleSize, calculations]);
-
-            const handleStage1Continue = () => {
-                if (freeResponse1.trim()) {
-                    setStage(2);
-                    setRange95(25);
+                
+                // Fill beta region (orange shaded area under alternative distribution)
+                if (stage >= 2) {
+                    ctx.fillStyle = 'rgba(245, 158, 11, 0.2)';
+                    ctx.beginPath();
+                    ctx.moveTo(toCanvasX(-criticalDiff), toCanvasY(0));
+                    for (let x = -criticalDiff; x <= criticalDiff; x += 0.5) {
+                        const y = normalPDF(x, meanDiff, seDiff);
+                        ctx.lineTo(toCanvasX(x), toCanvasY(y));
+                    }
+                    ctx.lineTo(toCanvasX(criticalDiff), toCanvasY(0));
+                    ctx.closePath();
+                    ctx.fill();
                 }
-            };
-
-            const handleStage2Continue = () => {
-                if (mcq1Answer === 'About 6 Hz') {
-                    setStage(3);
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                
+                // Fill power regions (purple shaded areas under alternative distribution)
+                if (stage >= 2) {
+                    ctx.fillStyle = 'rgba(168, 85, 247, 0.4)';
+                    
+                    // Left power region
+                    ctx.beginPath();
+                    ctx.moveTo(toCanvasX(-criticalDiff), toCanvasY(0));
+                    for (let x = -criticalDiff; x >= xMin; x -= 0.5) {
+                        const y = normalPDF(x, meanDiff, seDiff);
+                        ctx.lineTo(toCanvasX(x), toCanvasY(y));
+                    }
+                    ctx.lineTo(toCanvasX(xMin), toCanvasY(0));
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    // Right power region
+                    ctx.beginPath();
+                    ctx.moveTo(toCanvasX(criticalDiff), toCanvasY(0));
+                    for (let x = criticalDiff; x <= xMax; x += 0.5) {
+                        const y = normalPDF(x, meanDiff, seDiff);
+                        ctx.lineTo(toCanvasX(x), toCanvasY(y));
+                    }
+                    ctx.lineTo(toCanvasX(xMax), toCanvasY(0));
+                    ctx.closePath();
+                    ctx.fill();
                 }
-            };
+                
+                // Draw axes
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(margin.left, margin.top);
+                ctx.lineTo(margin.left, margin.top + plotHeight);
+                ctx.lineTo(margin.left + plotWidth, margin.top + plotHeight);
+                ctx.stroke();
+                
+                // Draw grid lines and x-axis ticks
+                ctx.strokeStyle = '#e5e7eb';
+                ctx.lineWidth = 1;
+                ctx.fillStyle = '#000';
+                ctx.font = '11px sans-serif';
+                ctx.textAlign = 'center';
+                for (let x = -30; x <= 40; x += 10) {
+                    const canvasX = toCanvasX(x);
+                    ctx.beginPath();
+                    ctx.moveTo(canvasX, margin.top);
+                    ctx.lineTo(canvasX, margin.top + plotHeight);
+                    ctx.stroke();
+                    ctx.fillText(x.toString(), canvasX, margin.top + plotHeight + 20);
+                }
+                
+                // Draw y-axis ticks
+                ctx.textAlign = 'right';
+                for (let y = 0; y <= 0.4; y += 0.1) {
+                    const canvasY = toCanvasY(y);
+                    ctx.fillText(y.toFixed(1), margin.left - 10, canvasY + 4);
+                }
+                
+                // Draw null hypothesis distribution (blue)
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                let first = true;
+                for (let x = xMin; x <= xMax; x += 0.2) {
+                    const y = normalPDF(x, 0, seDiff);
+                    const canvasX = toCanvasX(x);
+                    const canvasY = toCanvasY(y);
+                    if (first) {
+                        ctx.moveTo(canvasX, canvasY);
+                        first = false;
+                    } else {
+                        ctx.lineTo(canvasX, canvasY);
+                    }
+                }
+                ctx.stroke();
+                
+                // Draw alternative hypothesis distribution (green) if stage >= 2
+                if (stage >= 2) {
+                    ctx.strokeStyle = '#10b981';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    first = true;
+                    for (let x = xMin; x <= xMax; x += 0.2) {
+                        const y = normalPDF(x, meanDiff, seDiff);
+                        const canvasX = toCanvasX(x);
+                        const canvasY = toCanvasY(y);
+                        if (first) {
+                            ctx.moveTo(canvasX, canvasY);
+                            first = false;
+                        } else {
+                            ctx.lineTo(canvasX, canvasY);
+                        }
+                    }
+                    ctx.stroke();
+                }
+                
+                // Draw critical value lines (red dashed)
+                ctx.strokeStyle = '#ef4444';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(toCanvasX(-criticalDiff), margin.top);
+                ctx.lineTo(toCanvasX(-criticalDiff), margin.top + plotHeight);
+                ctx.moveTo(toCanvasX(criticalDiff), margin.top);
+                ctx.lineTo(toCanvasX(criticalDiff), margin.top + plotHeight);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // Draw reference lines for means
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(toCanvasX(0), margin.top);
+                ctx.lineTo(toCanvasX(0), margin.top + plotHeight);
+                ctx.stroke();
+                
+                if (stage >= 2) {
+                    ctx.strokeStyle = '#10b981';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(toCanvasX(meanDiff), margin.top);
+                    ctx.lineTo(toCanvasX(meanDiff), margin.top + plotHeight);
+                    ctx.stroke();
+                }
+                
+                // Add axis labels
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 13px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('Difference in Mean Firing Rate (Hz)', margin.left + plotWidth / 2, height - 10);
+                
+                ctx.save();
+                ctx.translate(15, margin.top + plotHeight / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.fillText('Probability Density', 0, 0);
+                ctx.restore();
+                
+            }, [stage, range95, meanDiff, sampleSize, seDiff, criticalDiff]);
+
+            if (stage === 4) {
+                return (
+                    <div className="w-full max-w-5xl mx-auto p-4 space-y-4">
+                        <div className="text-center space-y-2 mb-6">
+                            <h1 className="text-3xl font-bold">Group Responses Review</h1>
+                            <p className="text-gray-600">Review your classmates' reflections on statistical power</p>
+                        </div>
+
+                        <div className="bg-blue-50 p-4 rounded-lg mb-6">
+                            <p className="text-center font-semibold">
+                                Below are responses from other students in your group to the reflection question. 
+                                Read through their insights to see different perspectives on the relationships between 
+                                variability, effect size, sample size, and power.
+                            </p>
+                        </div>
+
+                        <div className="space-y-4">
+                            {/* Your response */}
+                            <div className="bg-green-50 p-5 rounded-lg border-2 border-green-300">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center text-white font-bold">
+                                        You
+                                    </div>
+                                    <span className="font-semibold text-green-800">Your Response</span>
+                                </div>
+                                <p className="text-gray-800">{freeResponse2 || "(You did not submit a response)"}</p>
+                            </div>
+
+                            {/* Mock student responses */}
+                            <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">
+                                        S1
+                                    </div>
+                                    <span className="font-semibold">Student 1</span>
+                                </div>
+                                <p className="text-gray-700">
+                                    I learned that power increases when we increase sample size or effect size, but decreases 
+                                    when variability increases. It's like a three-way balance - you need either a large effect, 
+                                    a large sample, or low variability to reliably detect differences. The most surprising thing 
+                                    was how much sample size matters when variability is high.
+                                </p>
+                            </div>
+
+                            <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center text-white font-bold">
+                                        S2
+                                    </div>
+                                    <span className="font-semibold">Student 2</span>
+                                </div>
+                                <p className="text-gray-700">
+                                    The relationship is multiplicative, not additive. Small changes in multiple factors can 
+                                    have big effects on power. For example, slightly reducing variability AND slightly increasing 
+                                    sample size can dramatically improve power. This makes me realize why careful experimental 
+                                    design is so important - controlling variability through good methodology is just as valuable 
+                                    as collecting more data.
+                                </p>
+                            </div>
+
+                            <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center text-white font-bold">
+                                        S3
+                                    </div>
+                                    <span className="font-semibold">Student 3</span>
+                                </div>
+                                <p className="text-gray-700">
+                                    What stood out to me is that with high variability, you need really large samples to detect 
+                                    even moderate effect sizes. But when variability is low, even small samples can detect small 
+                                    effects. This helps me understand why some fields need huge sample sizes while others can work 
+                                    with smaller studies - it depends on how noisy your measurements are.
+                                </p>
+                            </div>
+
+                            <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-8 h-8 bg-pink-500 rounded-full flex items-center justify-center text-white font-bold">
+                                        S4
+                                    </div>
+                                    <span className="font-semibold">Student 4</span>
+                                </div>
+                                <p className="text-gray-700">
+                                    I found it interesting that there's a trade-off between the variables. If you can't increase 
+                                    sample size (due to cost or time), you could focus on reducing measurement variability or 
+                                    looking for larger effect sizes. Understanding these relationships helps me think about study 
+                                    design more strategically rather than just defaulting to "get more data."
+                                </p>
+                            </div>
+                        </div>
+
+                        <button onClick={() => setStage(5)}
+                            className="w-full mt-6 px-6 py-3 bg-blue-600 text-white text-lg font-semibold rounded-lg hover:bg-blue-700">
+                            Continue to Completion
+                        </button>
+                    </div>
+                );
+            }
+
+            if (stage === 5) {
+                return (
+                    <div className="w-full max-w-5xl mx-auto p-4">
+                        <div className="bg-gradient-to-br from-green-50 to-blue-50 p-12 rounded-lg text-center shadow-lg">
+                            <div className="text-6xl mb-6">🎉</div>
+                            <h2 className="text-3xl font-bold text-green-800 mb-4">Congratulations!</h2>
+                            <p className="text-lg text-gray-700">
+                                You have explored the representation of statistical power in distributions of theoretical mean differences 
+                                and learned about the impact of variability, effect size, and sample size on its value.
+                            </p>
+                        </div>
+                    </div>
+                );
+            }
 
             return (
                 <div className="w-full max-w-5xl mx-auto p-4 space-y-4">
@@ -149,52 +388,40 @@
                         <div className="space-y-3 p-4 bg-blue-50 rounded-lg">
                             <label className="font-semibold text-lg">Variability</label>
                             <p className="text-sm text-gray-600">95% of firing rates fall within this range</p>
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between mb-2">
                                 <span className="text-sm">Low</span>
                                 <span className="text-2xl font-bold text-blue-600">±{range95} Hz</span>
                                 <span className="text-sm">High</span>
                             </div>
-                            <Slider
-                                value={[range95]}
-                                onValueChange={(v) => setRange95(v[0])}
-                                min={10}
-                                max={40}
-                                step={1}
-                            />
+                            <input type="range" min="10" max="40" step="1" value={range95} 
+                                   onChange={(e) => setRange95(parseInt(e.target.value))}
+                                   className="w-full" />
                         </div>
                     )}
 
                     {stage === 2 && (
                         <div className="space-y-6">
                             <div className="bg-gray-100 p-4 rounded-lg text-center">
-                                <label className="font-semibold text-lg">Variability (Fixed)</label>
+                                <label className="font-semibold text-lg block">Variability (Fixed)</label>
                                 <p className="text-sm text-gray-600">95% of firing rates fall within this range</p>
                                 <span className="text-2xl font-bold text-gray-700">±{range95} Hz</span>
                             </div>
-
                             <div className="space-y-3 p-4 bg-green-50 rounded-lg">
                                 <label className="font-semibold text-lg">Effect Size</label>
                                 <p className="text-sm text-gray-600">Difference in average firing rates</p>
-                                <div className="flex items-center justify-between">
+                                <div className="flex items-center justify-between mb-2">
                                     <span className="text-sm">Small</span>
                                     <span className="text-2xl font-bold text-green-600">{meanDiff} Hz</span>
                                     <span className="text-sm">Large</span>
                                 </div>
-                                <Slider
-                                    value={[meanDiff]}
-                                    onValueChange={(v) => setMeanDiff(v[0])}
-                                    min={0}
-                                    max={8}
-                                    step={0.5}
-                                />
+                                <input type="range" min="0" max="8" step="0.5" value={meanDiff}
+                                       onChange={(e) => setMeanDiff(parseFloat(e.target.value))}
+                                       className="w-full" />
                             </div>
-
-                            <div className="bg-purple-50 p-4 rounded-lg">
-                                <div className="text-center">
-                                    <label className="font-semibold text-lg">Sample Size</label>
-                                    <p className="text-sm text-gray-600">Neurons per group</p>
-                                    <span className="text-2xl font-bold text-purple-600">{sampleSize}</span>
-                                </div>
+                            <div className="bg-purple-50 p-4 rounded-lg text-center">
+                                <label className="font-semibold text-lg block">Sample Size</label>
+                                <p className="text-sm text-gray-600">Neurons per group</p>
+                                <span className="text-2xl font-bold text-purple-600">{sampleSize}</span>
                             </div>
                         </div>
                     )}
@@ -205,225 +432,89 @@
                                 <div className="space-y-3 p-4 bg-blue-50 rounded-lg">
                                     <label className="font-semibold text-lg">Variability</label>
                                     <p className="text-sm text-gray-600">95% of firing rates fall within this range</p>
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between mb-2">
                                         <span className="text-sm">Low</span>
                                         <span className="text-2xl font-bold text-blue-600">±{range95} Hz</span>
                                         <span className="text-sm">High</span>
                                     </div>
-                                    <Slider
-                                        value={[range95]}
-                                        onValueChange={(v) => setRange95(v[0])}
-                                        min={10}
-                                        max={40}
-                                        step={1}
-                                    />
+                                    <input type="range" min="10" max="40" step="1" value={range95}
+                                           onChange={(e) => setRange95(parseInt(e.target.value))}
+                                           className="w-full" />
                                 </div>
-
                                 <div className="space-y-3 p-4 bg-green-50 rounded-lg">
                                     <label className="font-semibold text-lg">Effect Size</label>
                                     <p className="text-sm text-gray-600">Difference in average firing rates</p>
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between mb-2">
                                         <span className="text-sm">Small</span>
                                         <span className="text-2xl font-bold text-green-600">{meanDiff} Hz</span>
                                         <span className="text-sm">Large</span>
                                     </div>
-                                    <Slider
-                                        value={[meanDiff]}
-                                        onValueChange={(v) => setMeanDiff(v[0])}
-                                        min={0}
-                                        max={8}
-                                        step={0.5}
-                                    />
+                                    <input type="range" min="0" max="8" step="0.5" value={meanDiff}
+                                           onChange={(e) => setMeanDiff(parseFloat(e.target.value))}
+                                           className="w-full" />
                                 </div>
                             </div>
-
                             <div className="space-y-3 p-4 bg-purple-50 rounded-lg">
                                 <label className="font-semibold text-lg">Sample Size</label>
                                 <p className="text-sm text-gray-600">Neurons per group</p>
-                                <div className="flex items-center justify-between">
+                                <div className="flex items-center justify-between mb-2">
                                     <span className="text-sm">Few</span>
                                     <span className="text-2xl font-bold text-purple-600">{sampleSize}</span>
                                     <span className="text-sm">Many</span>
                                 </div>
-                                <Slider
-                                    value={[sampleSize]}
-                                    onValueChange={(v) => setSampleSize(v[0])}
-                                    min={2}
-                                    max={60}
-                                    step={2}
-                                />
+                                <input type="range" min="2" max="60" step="2" value={sampleSize}
+                                       onChange={(e) => setSampleSize(parseInt(e.target.value))}
+                                       className="w-full" />
                             </div>
                         </div>
                     )}
 
-                    {stage <= 3 && (
-                        <div className="bg-white p-4 rounded-lg shadow-lg">
-                            <div className="mb-2">
-                                <h3 className="font-semibold text-lg">Sampling Distribution of Mean Difference</h3>
-                                <p className="text-sm text-gray-600">Distribution of (Group B Mean - Group A Mean) across repeated experiments</p>
+                    <div className="bg-white p-4 rounded-lg shadow-lg">
+                        <div className="mb-2">
+                            <h3 className="font-semibold text-lg">Sampling Distribution of Mean Difference</h3>
+                            <p className="text-sm text-gray-600">Distribution of (Group B Mean - Group A Mean) across repeated experiments</p>
+                        </div>
+                        <canvas id="powerChart" width="800" height="350" className="w-full"></canvas>
+                        <div className="flex flex-wrap justify-center gap-3 mt-3 text-xs">
+                            <div className="flex items-center gap-1">
+                                <div className="w-4 h-3" style={{border: '2px solid #3b82f6'}}></div>
+                                <span>H₀: No difference</span>
                             </div>
-                            <div style={{ width: '100%', height: '350px' }}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <ComposedChart data={generateData.data} margin={{ top: 10, right: 40, left: 20, bottom: 30 }}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis
-                                            dataKey="x"
-                                            label={{ value: 'Difference in Mean Firing Rate (Hz)', position: 'insideBottom', offset: -5 }}
-                                            tickFormatter={(value) => parseFloat(value).toFixed(0)}
-                                            domain={[-30, 40]}
-                                            type="number"
-                                        />
-                                        <YAxis
-                                            label={{ value: 'Probability Density', angle: -90, position: 'insideLeft' }}
-                                            domain={[0, 0.4]}
-                                        />
-
-                                        <Area
-                                            type="monotone"
-                                            dataKey="alpha"
-                                            fill="#ef4444"
-                                            fillOpacity={0.3}
-                                            stroke="none"
-                                            name="α (Type I Error) = 0.05"
-                                        />
-
-                                        {stage >= 2 && (
-                                            <Area
-                                                type="monotone"
-                                                dataKey="beta"
-                                                fill="#f59e0b"
-                                                fillOpacity={0.2}
-                                                stroke="none"
-                                                name="β (Type II Error)"
-                                            />
-                                        )}
-
-                                        {stage >= 2 && (
-                                            <Area
-                                                type="monotone"
-                                                dataKey="power"
-                                                fill="#a855f7"
-                                                fillOpacity={0.4}
-                                                stroke="none"
-                                                name="Power (1-β)"
-                                            />
-                                        )}
-
-                                        <Line
-                                            type="monotone"
-                                            dataKey="null"
-                                            stroke="#3b82f6"
-                                            strokeWidth={3}
-                                            dot={false}
-                                            name="H₀: No difference"
-                                        />
-
-                                        {stage >= 2 && (
-                                            <Line
-                                                type="monotone"
-                                                dataKey="alternative"
-                                                stroke="#10b981"
-                                                strokeWidth={3}
-                                                dot={false}
-                                                name="Hₐ: True difference"
-                                            />
-                                        )}
-
-                                        <ReferenceLine
-                                            x={generateData.lowerCritical}
-                                            stroke="#ef4444"
-                                            strokeDasharray="3 3"
-                                        />
-                                        <ReferenceLine
-                                            x={generateData.upperCritical}
-                                            stroke="#ef4444"
-                                            strokeDasharray="3 3"
-                                        />
-
-                                        <ReferenceLine
-                                            x={0}
-                                            stroke="#3b82f6"
-                                            strokeWidth={2}
-                                        />
-
-                                        {stage >= 2 && (
-                                            <ReferenceLine
-                                                x={meanDiff}
-                                                stroke="#10b981"
-                                                strokeWidth={2}
-                                            />
-                                        )}
-                                    </ComposedChart>
-                                </ResponsiveContainer>
+                            {stage >= 2 && (
+                                <div className="flex items-center gap-1">
+                                    <div className="w-4 h-3" style={{border: '2px solid #10b981'}}></div>
+                                    <span>Hₐ: True difference</span>
+                                </div>
+                            )}
+                            <div className="flex items-center gap-1">
+                                <div className="w-4 h-3 bg-red-400 opacity-30"></div>
+                                <span>α (Type I Error)</span>
                             </div>
-
-                            <div className="flex flex-wrap justify-center gap-3 mt-2 text-xs">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-4 h-4 bg-red-400 opacity-30"></div>
-                                    <span>α (Type I Error) = 0.05</span>
-                                </div>
-                                {stage >= 2 && (
-                                    <>
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-4 h-4 bg-amber-400 opacity-20"></div>
-                                            <span>β (Type II Error)</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-4 h-4 bg-purple-400 opacity-40"></div>
-                                            <span>Power (1-β)</span>
-                                        </div>
-                                    </>
-                                )}
-                                <div className="flex items-center gap-2">
-                                    <div className="w-4 h-3 border-2 border-blue-600"></div>
-                                    <span>H₀: No difference</span>
-                                </div>
-                                {stage >= 2 && (
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-4 h-3 border-2 border-green-600"></div>
-                                        <span>Hₐ: True difference</span>
+                            {stage >= 2 && (
+                                <>
+                                    <div className="flex items-center gap-1">
+                                        <div className="w-4 h-3 bg-amber-400 opacity-20"></div>
+                                        <span>β (Type II Error)</span>
                                     </div>
-                                )}
-                            </div>
+                                    <div className="flex items-center gap-1">
+                                        <div className="w-4 h-3 bg-purple-400 opacity-40"></div>
+                                        <span>Power (1-β)</span>
+                                    </div>
+                                </>
+                            )}
                         </div>
-                    )}
+                    </div>
 
-                    {stage === 2 && (
+                    {(stage === 2 || stage === 3) && (
                         <div className="grid grid-cols-2 gap-4">
                             <div className="p-4 bg-amber-50 rounded-lg text-center">
                                 <div className="text-sm text-gray-600">β (Type II Error)</div>
-                                <div className="text-2xl font-bold text-amber-600">{((1 - calculations.power) * 100).toFixed(1)}%</div>
+                                <div className="text-2xl font-bold text-amber-600">{((1 - power) * 100).toFixed(1)}%</div>
                             </div>
                             <div className="p-4 bg-purple-50 rounded-lg text-center">
                                 <div className="text-sm text-gray-600">Statistical Power</div>
-                                <div className="text-2xl font-bold text-purple-600">{(calculations.power * 100).toFixed(1)}%</div>
+                                <div className="text-2xl font-bold text-purple-600">{(power * 100).toFixed(1)}%</div>
                             </div>
-                        </div>
-                    )}
-
-                    {stage === 3 && (
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="p-4 bg-amber-50 rounded-lg text-center">
-                                <div className="text-sm text-gray-600">β (Type II Error)</div>
-                                <div className="text-2xl font-bold text-amber-600">{((1 - calculations.power) * 100).toFixed(1)}%</div>
-                            </div>
-                            <div className="p-4 bg-purple-50 rounded-lg text-center">
-                                <div className="text-sm text-gray-600">Statistical Power</div>
-                                <div className="text-2xl font-bold text-purple-600">{(calculations.power * 100).toFixed(1)}%</div>
-                            </div>
-                        </div>
-                    )}
-
-                    {stage >= 2 && stage <= 3 && (
-                        <div className="bg-blue-50 p-3 rounded-lg space-y-1">
-                            <h3 className="font-semibold text-sm">Understanding the Visualization:</h3>
-                            <ul className="text-xs space-y-1 list-disc list-inside">
-                                <li><span className="text-blue-600 font-semibold">Blue curve (H₀):</span> Sampling distribution when there is actually no difference between groups (centered at 0)</li>
-                                <li><span className="text-green-600 font-semibold">Green curve (Hₐ):</span> Sampling distribution when the true difference equals {meanDiff} Hz</li>
-                                <li><span className="text-red-600 font-semibold">Red shaded areas:</span> Alpha (α = 0.05) - regions where we reject H₀. Under the null hypothesis, we incorrectly reject 5% of the time (Type I error)</li>
-                                <li><span className="text-amber-600 font-semibold">Orange shaded area:</span> Beta (β) - region where we fail to reject H₀ when Hₐ is true (Type II error)</li>
-                                <li><span className="text-purple-600 font-semibold">Purple shaded areas:</span> Statistical power (1-β) - probability of correctly detecting the effect when it exists</li>
-                            </ul>
                         </div>
                     )}
 
@@ -431,19 +522,15 @@
                         <div className="bg-yellow-50 p-6 rounded-lg border-2 border-yellow-200">
                             <h3 className="font-semibold text-lg mb-3">Question:</h3>
                             <p className="mb-4">
-                                The areas shaded in red represent the 5% of the distribution of mean differences where the null hypothesis might be rejected when it is actually true (Type I error). How do changes in variability affect the positioning of these areas and their associated cut-off from the remainder of the distribution?
+                                The areas shaded in red represent the 5% of the distribution of mean differences where the null 
+                                hypothesis might be rejected when it is actually true (Type I error). How do changes in variability 
+                                affect the positioning of these areas and their associated cut-off from the remainder of the distribution?
                             </p>
-                            <textarea
-                                value={freeResponse1}
-                                onChange={(e) => setFreeResponse1(e.target.value)}
-                                className="w-full p-3 border rounded-lg min-h-32"
-                                placeholder="Type your response here..."
-                            />
-                            <button
-                                onClick={handleStage1Continue}
+                            <textarea value={freeResponse1} onChange={(e) => setFreeResponse1(e.target.value)}
+                                className="w-full p-3 border rounded-lg" rows="4" placeholder="Type your response here..." />
+                            <button onClick={() => { if(freeResponse1.trim()) { setStage(2); setRange95(25); }}}
                                 disabled={!freeResponse1.trim()}
-                                className="mt-3 px-6 py-2 bg-blue-600 text-white rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-700 transition"
-                            >
+                                className="mt-3 px-6 py-2 bg-blue-600 text-white rounded-lg disabled:bg-gray-300 hover:bg-blue-700">
                                 Continue
                             </button>
                         </div>
@@ -453,34 +540,25 @@
                         <div className="bg-green-50 p-6 rounded-lg border-2 border-green-200">
                             <h3 className="font-semibold text-lg mb-3">Question:</h3>
                             <p className="mb-4">
-                                When 95% of the differences fall within a range of ±25 Hz, what is the smallest effect size that can be detected with 80% power by rejecting the null hypothesis when N = 20?
+                                When 95% of the differences fall within a range of ±25 Hz, what is the smallest effect size that 
+                                can be detected with 80% power by rejecting the null hypothesis when N = 20?
                             </p>
                             <div className="space-y-2">
                                 {['About 4 Hz', 'About 5 Hz', 'About 6 Hz', 'About 7 Hz'].map((option) => (
                                     <label key={option} className="flex items-center space-x-3 p-3 bg-white rounded cursor-pointer hover:bg-green-100">
-                                        <input
-                                            type="radio"
-                                            name="mcq1"
-                                            value={option}
-                                            checked={mcq1Answer === option}
-                                            onChange={(e) => setMcq1Answer(e.target.value)}
-                                            className="w-4 h-4"
-                                        />
+                                        <input type="radio" name="mcq1" value={option} checked={mcq1Answer === option}
+                                            onChange={(e) => setMcq1Answer(e.target.value)} />
                                         <span>{option}</span>
-                                        {mcq1Answer === option && option === 'About 6 Hz' && (
-                                            <span className="ml-auto text-green-600 font-semibold">✓ Correct!</span>
-                                        )}
-                                        {mcq1Answer === option && option !== 'About 6 Hz' && (
-                                            <span className="ml-auto text-red-600 font-semibold">Try again</span>
-                                        )}
+                                        {mcq1Answer === option && option === 'About 6 Hz' && 
+                                            <span className="ml-auto text-green-600 font-semibold">✓ Correct!</span>}
+                                        {mcq1Answer === option && option !== 'About 6 Hz' && 
+                                            <span className="ml-auto text-red-600 font-semibold">Try again</span>}
                                     </label>
                                 ))}
                             </div>
-                            <button
-                                onClick={handleStage2Continue}
+                            <button onClick={() => { if(mcq1Answer === 'About 6 Hz') { setStage(3); window.scrollTo(0,0); }}}
                                 disabled={mcq1Answer !== 'About 6 Hz'}
-                                className="mt-3 px-6 py-2 bg-blue-600 text-white rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed hover:bg-blue-700 transition"
-                            >
+                                className="mt-3 px-6 py-2 bg-blue-600 text-white rounded-lg disabled:bg-gray-300 hover:bg-blue-700">
                                 Continue
                             </button>
                         </div>
@@ -491,65 +569,42 @@
                             <div className="bg-green-50 p-6 rounded-lg border-2 border-green-200">
                                 <h3 className="font-semibold text-lg mb-3">Question:</h3>
                                 <p className="mb-4">
-                                    Let's say the smallest effect size that we'd like to be able to test for is about 2 Hz, and we expect 95% of our variance to be within a range of about ±15 Hz. What sample size would we need to have an 80% chance of correctly rejecting H₀ if Hₐ is true?
+                                    Let's say the smallest effect size that we'd like to be able to test for is about 2 Hz, 
+                                    and we expect 95% of our variance to be within a range of about ±15 Hz. What sample size 
+                                    would we need to have an 80% chance of correctly rejecting H₀ if Hₐ is true?
                                 </p>
                                 <div className="space-y-2">
                                     {['At least 20', 'At least 35', 'At least 50', 'At least 57'].map((option) => (
                                         <label key={option} className="flex items-center space-x-3 p-3 bg-white rounded cursor-pointer hover:bg-green-100">
-                                            <input
-                                                type="radio"
-                                                name="mcq2"
-                                                value={option}
-                                                checked={mcq2Answer === option}
-                                                onChange={(e) => setMcq2Answer(e.target.value)}
-                                                className="w-4 h-4"
-                                            />
+                                            <input type="radio" name="mcq2" value={option} checked={mcq2Answer === option}
+                                                onChange={(e) => setMcq2Answer(e.target.value)} />
                                             <span>{option}</span>
-                                            {mcq2Answer === option && option === 'At least 57' && (
-                                                <span className="ml-auto text-green-600 font-semibold">✓ Correct!</span>
-                                            )}
-                                            {mcq2Answer === option && option !== 'At least 57' && (
-                                                <span className="ml-auto text-red-600 font-semibold">Try again</span>
-                                            )}
+                                            {mcq2Answer === option && option === 'At least 57' && 
+                                                <span className="ml-auto text-green-600 font-semibold">✓ Correct!</span>}
+                                            {mcq2Answer === option && option !== 'At least 57' && 
+                                                <span className="ml-auto text-red-600 font-semibold">Try again</span>}
                                         </label>
                                     ))}
                                 </div>
                             </div>
-
                             <div className="bg-yellow-50 p-6 rounded-lg border-2 border-yellow-200">
                                 <h3 className="font-semibold text-lg mb-3">Reflection Question:</h3>
                                 <p className="mb-4">
-                                    Play with the sliders some more. How would you describe the relationship between data variability, effect size, sample size, and power? What have you learned?
+                                    Play with the sliders some more. How would you describe the relationship between data variability, 
+                                    effect size, sample size, and power? What have you learned?
                                 </p>
-                                <textarea
-                                    value={freeResponse2}
-                                    onChange={(e) => setFreeResponse2(e.target.value)}
-                                    className="w-full p-3 border rounded-lg min-h-32"
-                                    placeholder="Type your response here..."
-                                />
+                                <textarea value={freeResponse2} onChange={(e) => setFreeResponse2(e.target.value)}
+                                    className="w-full p-3 border rounded-lg" rows="4" placeholder="Type your response here..." />
                             </div>
-
-                            <button
-                                onClick={() => setStage(4)}
-                                className="w-full px-6 py-3 bg-green-600 text-white text-lg font-semibold rounded-lg hover:bg-green-700 transition"
-                            >
+                            <button onClick={() => setStage(4)}
+                                className="w-full px-6 py-3 bg-green-600 text-white text-lg font-semibold rounded-lg hover:bg-green-700">
                                 Complete
                             </button>
                         </div>
                     )}
-
-                    {stage === 4 && (
-                        <div className="bg-gradient-to-br from-green-50 to-blue-50 p-12 rounded-lg text-center shadow-lg">
-                            <div className="text-6xl mb-6">🎉</div>
-                            <h2 className="text-3xl font-bold text-green-800 mb-4">Congratulations!</h2>
-                            <p className="text-lg text-gray-700 max-w-3xl mx-auto">
-                                You have explored the representation of statistical power in distributions of theoretical mean differences and learned about the impact of variability, effect size, and sample size on its value.
-                            </p>
-                        </div>
-                    )}
                 </div>
             );
-        };
+        }
 
         ReactDOM.render(<StatisticalPowerTTest />, document.getElementById('root'));
     </script>
