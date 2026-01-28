@@ -4,10 +4,10 @@
 
 
 ## Lesson 2
-[https://c4r-io.github.io/bu_sam-activities/stats-power-html](Statistical Power Visualization)
+[Statistical Power Visualization](https://c4r-io.github.io/bu_sam-activities/stats-power-html)
 
 ## Lesson 3 
-[https://c4r-io.github.io/bu_sam-activities/bootstrap-power-analysis.html](Bootstrap Power Analysis)
+[Bootstrap Power Analysis](https://c4r-io.github.io/bu_sam-activities/bootstrap-power-analysis.html)
 
 ## Lesson 4
 
