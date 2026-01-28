@@ -117,6 +117,7 @@ const BootstrapPowerAnalysis = () => {
   const [regressionRSquared, setRegressionRSquared] = useState(null);
   const [residualSD, setResidualSD] = useState(null);
   const [sampledBiomarkers, setSampledBiomarkers] = useState([]);
+  const [biomarkerAnimationComplete, setBiomarkerAnimationComplete] = useState(false);
   
   const chartContainerRef = useRef(null);
   const pilotChartRef = useRef(null);
@@ -327,7 +328,24 @@ const BootstrapPowerAnalysis = () => {
       .attr('stroke', '#f59e0b')
       .attr('stroke-width', 3);
 
-  }, [d3Loaded, step, initialData, highlightedPoints, biomarkerRange.min, biomarkerRange.max, lifespanRange.min, lifespanRange.max, chartWidth, chartHeight]);
+    // Add regression line if fitted
+    if (regressionFitted && regressionIntercept !== null && regressionSlope !== null) {
+      const x1 = biomarkerRange.min;
+      const x2 = biomarkerRange.max;
+      const y1 = regressionIntercept + regressionSlope * x1;
+      const y2 = regressionIntercept + regressionSlope * x2;
+      
+      g.append('line')
+        .attr('x1', xScale(x1))
+        .attr('y1', yScale(y1))
+        .attr('x2', xScale(x2))
+        .attr('y2', yScale(y2))
+        .attr('stroke', '#8b5cf6')
+        .attr('stroke-width', 2.5)
+        .attr('opacity', 0.8);
+    }
+
+  }, [d3Loaded, step, initialData, highlightedPoints, biomarkerRange.min, biomarkerRange.max, lifespanRange.min, lifespanRange.max, chartWidth, chartHeight, regressionFitted, regressionIntercept, regressionSlope]);
 
   // Render resampled data chart with D3
   useEffect(() => {
@@ -688,6 +706,7 @@ const BootstrapPowerAnalysis = () => {
     setRegressionRSquared(null);
     setResidualSD(null);
     setSampledBiomarkers([]);
+    setBiomarkerAnimationComplete(false);
   };
 
   // Generative Model Functions
@@ -707,6 +726,12 @@ const BootstrapPowerAnalysis = () => {
     setXMean(mean);
     setXSD(sd);
     setXDistributionEstimated(true);
+    setBiomarkerAnimationComplete(false);
+    
+    // Set animation complete after all points have fallen (20 points * 0.05s stagger + 0.6s duration + 0.3s fade)
+    setTimeout(() => {
+      setBiomarkerAnimationComplete(true);
+    }, 20 * 50 + 600 + 300);
   };
   
   // 2. Fit Linear Regression
@@ -1313,35 +1338,173 @@ const BootstrapPowerAnalysis = () => {
                     {/* Pilot Scatterplot */}
                     <div style={{ position: 'relative', marginBottom: '12px' }} ref={chartContainerRef}>
                       <svg ref={pilotChartRef} width={Math.floor(chartWidth * 0.95)} height={chartHeight} style={{ display: 'block' }}></svg>
+                      
+                      {/* Animated falling points */}
+                      {xDistributionEstimated && !biomarkerAnimationComplete && initialData.map((point, idx) => {
+                        const pos = calculatePointPosition(point);
+                        const targetY = chartHeight + 72; // Fall to center of boxplot area (12px gap + 60px to center)
+                        
+                        return (
+                          <div
+                            key={`falling-${point.id}`}
+                            style={{
+                              position: 'absolute',
+                              left: `${pos.x}px`,
+                              top: `${pos.y}px`,
+                              width: '6px',
+                              height: '6px',
+                              borderRadius: '50%',
+                              background: 'transparent',
+                              border: '2px solid rgba(102, 126, 234, 0.5)',
+                              pointerEvents: 'none',
+                              transform: 'translate(-50%, -50%)',
+                              animation: `fall-${idx} 0.6s ease-in forwards`,
+                              animationDelay: `${idx * 0.05}s`,
+                              opacity: 0
+                            }}
+                          />
+                        );
+                      })}
+                      
+                      {/* Add keyframes for falling animation */}
+                      {xDistributionEstimated && !biomarkerAnimationComplete && (
+                        <style>{`
+                          ${initialData.map((_, idx) => `
+                            @keyframes fall-${idx} {
+                              0% {
+                                opacity: 1;
+                                transform: translate(-50%, -50%) translateY(0);
+                              }
+                              100% {
+                                opacity: 1;
+                                transform: translate(-50%, -50%) translateY(${chartHeight + 60 - calculatePointPosition(initialData[idx]).y}px);
+                              }
+                            }
+                          `).join('\n')}
+                        `}</style>
+                      )}
                     </div>
                     
-                    {/* Pilot Data Table */}
-                    <div className="data-table-container">
-                      <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
-                        <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                          <tr>
-                            <th style={{ padding: '6px 4px', textAlign: 'left', color: '#64748b', fontWeight: '600' }}>Index</th>
-                            <th style={{ padding: '6px 4px', textAlign: 'right', color: '#64748b', fontWeight: '600' }}>Biomarker</th>
-                            <th style={{ padding: '6px 4px', textAlign: 'right', color: '#64748b', fontWeight: '600' }}>Lifespan</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {initialData.map((point, idx) => (
-                            <tr 
-                              key={point.id}
-                              style={{ 
-                                background: highlightedPoints.includes(point.id) ? '#fef3c7' : 'white',
-                                borderBottom: '1px solid #e2e8f0'
-                              }}
-                            >
-                              <td style={{ padding: '4px', color: '#64748b' }}>{idx + 1}</td>
-                              <td style={{ padding: '4px', textAlign: 'right', fontWeight: '500', color: '#0f172a' }}>{point.biomarker.toFixed(1)}</td>
-                              <td style={{ padding: '4px', textAlign: 'right', fontWeight: '500', color: '#0f172a' }}>{point.lifespan.toFixed(1)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    {/* Combined Biomarker Distribution: Boxplot + Stats */}
+                    <div style={{ 
+                      border: '2px solid #e2e8f0', 
+                      borderRadius: '8px', 
+                      background: 'white',
+                      padding: '4px 0',
+                      minHeight: '110px',
+                      marginBottom: '12px'
+                    }}>
+                      <svg width={Math.floor(chartWidth * 0.95)} height="60" style={{ display: 'block' }}>
+                        {biomarkerAnimationComplete && (() => {
+                          const svgWidth = Math.floor(chartWidth * 0.95);
+                          const width = svgWidth - margin.left - margin.right;
+                          const centerY = 40; // Center of the boxplot area
+                          
+                          // Calculate boxplot statistics
+                          const biomarkerValues = initialData.map(d => d.biomarker).sort((a, b) => a - b);
+                          const q1 = biomarkerValues[Math.floor(biomarkerValues.length * 0.25)];
+                          const median = biomarkerValues[Math.floor(biomarkerValues.length * 0.5)];
+                          const q3 = biomarkerValues[Math.floor(biomarkerValues.length * 0.75)];
+                          const min = biomarkerValues[0];
+                          const max = biomarkerValues[biomarkerValues.length - 1];
+                          
+                          // Scale for x-axis (exactly matching the pilot chart)
+                          const xScale = (value) => {
+                            const range = biomarkerRange.max - biomarkerRange.min;
+                            return margin.left + ((value - biomarkerRange.min) / range) * width;
+                          };
+                          
+                          return (
+                            <g>
+                              {/* Whiskers */}
+                              <line x1={xScale(min)} y1={centerY} x2={xScale(q1)} y2={centerY} stroke="#64748b" strokeWidth="2" />
+                              <line x1={xScale(q3)} y1={centerY} x2={xScale(max)} y2={centerY} stroke="#64748b" strokeWidth="2" />
+                              <line x1={xScale(min)} y1={centerY - 10} x2={xScale(min)} y2={centerY + 10} stroke="#64748b" strokeWidth="2" />
+                              <line x1={xScale(max)} y1={centerY - 10} x2={xScale(max)} y2={centerY + 10} stroke="#64748b" strokeWidth="2" />
+                              
+                              {/* Box */}
+                              <rect 
+                                x={xScale(q1)} 
+                                y={centerY - 15} 
+                                width={xScale(q3) - xScale(q1)} 
+                                height={30} 
+                                fill="#bfdbfe" 
+                                stroke="#3b82f6" 
+                                strokeWidth="2"
+                              />
+                              
+                              {/* Median line */}
+                              <line x1={xScale(median)} y1={centerY - 15} x2={xScale(median)} y2={centerY + 15} stroke="#1e40af" strokeWidth="3" />
+                              
+                              {/* Collected points on the center line - exact same style as animated points */}
+                              {initialData.map((point, idx) => (
+                                <g key={point.id}>
+                                  <circle
+                                    cx={xScale(point.biomarker)}
+                                    cy={centerY}
+                                    r="3"
+                                    fill="transparent"
+                                    stroke="rgba(102, 126, 234, 0.5)"
+                                    strokeWidth="2"
+                                  />
+                                </g>
+                              ))}
+                            </g>
+                          );
+                        })()}
+                      </svg>
+                      
+                      {biomarkerAnimationComplete && (
+                        <>
+                          <div style={{ fontSize: '11px', fontWeight: '600', color: '#0f172a', marginTop: '4px', marginBottom: '4px', textAlign: 'center' }}>
+                            Biomarker Distribution
+                          </div>
+                          
+                          <div style={{ fontSize: '11px', display: 'flex', justifyContent: 'space-around', marginTop: '4px' }}>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ color: '#64748b', fontSize: '10px' }}>Mean (<i>μ</i>)</div>
+                              <div style={{ fontWeight: '600', color: '#0f172a' }}>{xMean.toFixed(2)}</div>
+                            </div>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ color: '#64748b', fontSize: '10px' }}>SD (<i>σ</i>)</div>
+                              <div style={{ fontWeight: '600', color: '#0f172a' }}>{xSD.toFixed(2)}</div>
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
+                    
+                    {/* Linear Regression Stats Box */}
+                    {regressionFitted && (
+                      <div style={{ 
+                        border: '2px solid #8b5cf6', 
+                        borderRadius: '8px', 
+                        background: 'white',
+                        padding: '8px',
+                        marginBottom: '12px'
+                      }}>
+                        <div style={{ fontSize: '11px', fontWeight: '600', color: '#8b5cf6', marginBottom: '2px', textAlign: 'center' }}>
+                          Linear Regression
+                        </div>
+                        <div style={{ fontSize: '9px', color: '#64748b', marginBottom: '4px', textAlign: 'center', fontStyle: 'italic' }}>
+                          Lifespan = <i>β</i>₀ + <i>β</i>₁·Biomarker + <i>ε</i>
+                        </div>
+                        <div style={{ fontSize: '10px', display: 'flex', justifyContent: 'space-around', marginTop: '4px' }}>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ color: '#64748b', fontSize: '9px' }}>Intercept (<i>β</i>₀)</div>
+                            <div style={{ fontWeight: '600', color: '#0f172a' }}>{regressionIntercept.toFixed(2)}</div>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ color: '#64748b', fontSize: '9px' }}>Slope (<i>β</i>₁)</div>
+                            <div style={{ fontWeight: '600', color: '#0f172a' }}>{regressionSlope.toFixed(3)}</div>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ color: '#64748b', fontSize: '9px' }}>Noise SD (<i>σ</i><sub>ε</sub>)</div>
+                            <div style={{ fontWeight: '600', color: '#0f172a' }}>{residualSD.toFixed(2)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   
                   {/* CENTER: Step-by-step controls */}
@@ -1399,101 +1562,36 @@ const BootstrapPowerAnalysis = () => {
                       Calculate Generated Stats
                     </button>
                     
-                    {/* Biomarker Distribution Results */}
-                    <div style={{ fontSize: '11px', fontWeight: '600', color: '#0f172a', marginTop: '4px', marginBottom: '2px', textAlign: 'center' }}>
-                      Biomarker Distribution
-                    </div>
-                    <div className="stats-box" style={{ minHeight: '35px', maxHeight: '35px', padding: '4px 6px' }}>
-                      {xDistributionEstimated ? (
-                        <div style={{ fontSize: '11px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
-                            <span style={{ color: '#64748b' }}>Mean (<i>μ</i>):</span>
-                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{xMean.toFixed(2)}</span>
+                    {/* Synthetic Data Stats Results - Always visible */}
+                    <div style={{ marginTop: '8px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: '600', color: '#0f172a', marginBottom: '2px', textAlign: 'center' }}>
+                        Synthetic Data Stats
+                      </div>
+                      <div className="stats-box" style={{ minHeight: '35px', maxHeight: '35px', padding: '4px 6px' }}>
+                        {correlationValue !== null ? (
+                          <div style={{ fontSize: '11px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
+                              <span style={{ color: '#64748b' }}>Sample size (<i>n</i>):</span>
+                              <span style={{ fontWeight: '600', color: '#0f172a' }}>{selectedN}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#64748b' }}>Correlation (<i>r</i>):</span>
+                              <span style={{ fontWeight: '600', color: '#0f172a' }}>{correlationValue.toFixed(3)}</span>
+                            </div>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: '#64748b' }}>SD (<i>σ</i>):</span>
-                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{xSD.toFixed(2)}</span>
+                        ) : (
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            height: '100%',
+                            color: '#64748b',
+                            fontSize: '10px'
+                          }}>
+                            Awaiting calculation
                           </div>
-                        </div>
-                      ) : (
-                        <div style={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          height: '100%',
-                          color: '#64748b',
-                          fontSize: '10px'
-                        }}>
-                          Not estimated
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* Regression Results */}
-                    <div style={{ fontSize: '11px', fontWeight: '600', color: '#0f172a', marginTop: '4px', marginBottom: '1px', textAlign: 'center' }}>
-                      Linear Regression
-                    </div>
-                    <div style={{ fontSize: '9px', color: '#64748b', marginBottom: '2px', textAlign: 'center', fontStyle: 'italic' }}>
-                      Lifespan = <i>β</i>₀ + <i>β</i>₁·Biomarker + <i>ε</i>
-                    </div>
-                    <div className="stats-box" style={{ minHeight: '49px', maxHeight: '49px', padding: '4px 6px' }}>
-                      {regressionFitted ? (
-                        <div style={{ fontSize: '10px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
-                            <span style={{ color: '#64748b' }}>Intercept (<i>β</i>₀):</span>
-                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{regressionIntercept.toFixed(2)}</span>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
-                            <span style={{ color: '#64748b' }}>Slope (<i>β</i>₁):</span>
-                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{regressionSlope.toFixed(3)}</span>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: '#64748b' }}>Noise SD (<i>σ</i><sub>ε</sub>):</span>
-                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{residualSD.toFixed(2)}</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          height: '100%',
-                          color: '#64748b',
-                          fontSize: '10px'
-                        }}>
-                          Not fitted
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* Generated Stats Results */}
-                    <div style={{ fontSize: '11px', fontWeight: '600', color: '#0f172a', marginTop: '4px', marginBottom: '2px', textAlign: 'center' }}>
-                      Generated Stats
-                    </div>
-                    <div className="stats-box" style={{ minHeight: '35px', maxHeight: '35px', padding: '4px 6px' }}>
-                      {correlationValue !== null ? (
-                        <div style={{ fontSize: '11px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
-                            <span style={{ color: '#64748b' }}>Sample size (<i>n</i>):</span>
-                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{selectedN}</span>
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <span style={{ color: '#64748b' }}>Correlation (<i>r</i>):</span>
-                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{correlationValue.toFixed(3)}</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ 
-                          display: 'flex', 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          height: '100%',
-                          color: '#64748b',
-                          fontSize: '10px'
-                        }}>
-                          Not calculated
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
                   
@@ -2360,7 +2458,7 @@ const BootstrapPowerAnalysis = () => {
           alignItems: 'center'
         }}>
           <div style={{ display: 'flex', gap: '8px', flex: 1, justifyContent: 'center' }}>
-            {['Generate Data (<i>n</i> = 20)', 'Estimate Power (<i>n</i> = 20)', 'Generate Estimated Power Curve'].map((label, idx) => (
+            {['Build a model and simulate data (<i>n</i> = 20)', 'Estimate Power (<i>n</i> = 20)', 'Generate Estimated Power Curve'].map((label, idx) => (
               <button
                 key={idx}
                 onClick={() => {
