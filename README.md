@@ -10,7 +10,7 @@
 [Bootstrap Power Analysis](https://c4r-io.github.io/bu_sam-activities/bootstrap-power-analysis.html)
 
 ## Lesson 4
-
+[Synthetic Data Power Analysis](https://c4r-io.github.io/bu_sam-activities/synthetic-data-power-analysis.html)
 
 ## Lesson 5
 

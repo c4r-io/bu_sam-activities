@@ -1,0 +1,2426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bootstrap Power Analysis</title>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jstat@1.9.6/dist/jstat.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const BootstrapPowerAnalysis = () => {
+  // Seeded random number generator for reproducibility
+  const seededRandom = (seed) => {
+    let state = seed;
+    return () => {
+      state = (state * 1664525 + 1013904223) % 4294967296;
+      return state / 4294967296;
+    };
+  };
+  
+  // Generate 20 data points: genetic biomarker (0-100) vs lifespan (years)
+  const generateInitialData = () => {
+    const data = [];
+    const rng = seededRandom(603); // Use seed 603 for r ≈ 0.3
+    
+    // Check if jStat is available, otherwise fallback to uniform
+    const useNormal = typeof jStat !== 'undefined';
+    
+    // Box-Muller transform for generating normal random numbers from uniform
+    const normalRandom = (mean, sd, rng) => {
+      const u1 = rng();
+      const u2 = rng();
+      const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+      return mean + sd * z0;
+    };
+    
+    for (let i = 0; i < 20; i++) {
+      // Biomarker: Normal distribution with mean=50, sd=20, truncated to [0, 100]
+      let biomarker;
+      if (useNormal) {
+        do {
+          biomarker = normalRandom(50, 20, rng);
+        } while (biomarker < 0 || biomarker > 100);
+      } else {
+        biomarker = rng() * 100;
+      }
+      
+      // Lifespan: correlation with biomarker plus normal noise
+      // Base model: lifespan = 65 + 0.12 * biomarker + noise
+      let noise;
+      if (useNormal) {
+        noise = normalRandom(0, 8, rng); // Normal noise with sd=8
+      } else {
+        noise = (rng() - 0.5) * 12; // Fallback: uniform ±6
+      }
+      
+      const lifespan = 65 + biomarker * 0.12 + noise;
+      
+      data.push({ 
+        biomarker: parseFloat(biomarker.toFixed(1)), 
+        lifespan: parseFloat(lifespan.toFixed(1)),
+        id: i
+      });
+    }
+    return data.sort((a, b) => a.biomarker - b.biomarker);
+  };
+
+  const [initialData] = useState(generateInitialData());
+  const [step, setStep] = useState(1);
+  const [resampledData, setResampledData] = useState([]);
+  const [highlightedPoints, setHighlightedPoints] = useState([]);
+  const [animatedPoint, setAnimatedPoint] = useState(null);
+  const [animatedPointPos, setAnimatedPointPos] = useState(null);
+  const [animationTargetPos, setAnimationTargetPos] = useState(null);
+  const [dropAnimation, setDropAnimation] = useState(false);
+  const [startAnimation, setStartAnimation] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [correlationValue, setCorrelationValue] = useState(null);
+  const [pValue, setPValue] = useState(null);
+  const [isSignificant, setIsSignificant] = useState(null);
+  const [manyResults, setManyResults] = useState([]);
+  const [showSummary, setShowSummary] = useState(false);
+  const [showEstimatedPower, setShowEstimatedPower] = useState(false);
+  const [animateBox, setAnimateBox] = useState(false);
+  const [highlightSignificant, setHighlightSignificant] = useState(false);
+  const [nInput, setNInput] = useState('');
+  const [currentDisplayN, setCurrentDisplayN] = useState(20); // Track which n is being displayed in summary
+  const [powerCurve, setPowerCurve] = useState([]);
+  const [showPowerCurve, setShowPowerCurve] = useState(false);
+  const [animationSpeed, setAnimationSpeed] = useState('slow'); // slow, fast, faster, fastest
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [d3Loaded, setD3Loaded] = useState(false);
+  const [interactionStep, setInteractionStep] = useState(0); // 0=ready to select, 1=point selected, 2=animating, 3=ready for stats
+  const [currentSelectedPoint, setCurrentSelectedPoint] = useState(null);
+  const selectedN = 20; // Fixed sample size
+  const [validationMessage, setValidationMessage] = useState('');
+  const [step2Completed, setStep2Completed] = useState(false);
+  const [userAnswer, setUserAnswer] = useState('');
+  const [answerFeedback, setAnswerFeedback] = useState(null); // null, 'correct', or 'incorrect'
+  
+  // Generative model state variables
+  const [xDistributionEstimated, setXDistributionEstimated] = useState(false);
+  const [regressionFitted, setRegressionFitted] = useState(false);
+  const [biomarkersSampled, setBiomarkersSampled] = useState(false);
+  const [xMean, setXMean] = useState(null);
+  const [xSD, setXSD] = useState(null);
+  const [regressionSlope, setRegressionSlope] = useState(null);
+  const [regressionIntercept, setRegressionIntercept] = useState(null);
+  const [regressionRSquared, setRegressionRSquared] = useState(null);
+  const [residualSD, setResidualSD] = useState(null);
+  const [sampledBiomarkers, setSampledBiomarkers] = useState([]);
+  
+  const chartContainerRef = useRef(null);
+  const pilotChartRef = useRef(null);
+  const resampledChartRef = useRef(null);
+  
+  // Trigger animation after element is rendered
+  useEffect(() => {
+    if (dropAnimation && !startAnimation) {
+      // Use requestAnimationFrame to ensure the element is rendered before animating
+      requestAnimationFrame(() => {
+        setStartAnimation(true);
+      });
+    }
+    if (!dropAnimation) {
+      setStartAnimation(false);
+    }
+  }, [dropAnimation, startAnimation]);
+
+  // Reset classification when entering Step 2 for the first time
+  useEffect(() => {
+    if (step === 2 && !step2Completed) {
+      setIsSignificant(null);
+      setShowSummary(false);
+      setShowEstimatedPower(false);
+      setAnimateBox(false);
+      setHighlightSignificant(false);
+    }
+  }, [step, step2Completed]);
+  
+  // Load D3 library
+  useEffect(() => {
+    if (window.d3) {
+      setD3Loaded(true);
+      return;
+    }
+    
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js';
+    script.async = true;
+    script.onload = () => {
+      setD3Loaded(true);
+    };
+    document.body.appendChild(script);
+    
+    return () => {
+      if (script.parentNode) {
+        document.body.removeChild(script);
+      }
+    };
+  }, []);
+  
+  // Calculate axis ranges from initial data
+  const biomarkerRange = {
+    min: Math.min(...initialData.map(d => d.biomarker)) - 5,
+    max: Math.max(...initialData.map(d => d.biomarker)) + 5
+  };
+  const lifespanRange = {
+    min: Math.min(...initialData.map(d => d.lifespan)) - 8,
+    max: Math.max(...initialData.map(d => d.lifespan)) + 8
+  };
+
+  // D3 Chart dimensions with aspect ratio constraints
+  const getChartDimensions = () => {
+    // Use container width if available, otherwise default
+    const containerWidth = chartContainerRef.current ? chartContainerRef.current.offsetWidth : 350;
+    const minAspectRatio = 2/3; // width shouldn't be less than 2/3 of height
+    const maxAspectRatio = 2; // width shouldn't be more than 2x height
+    
+    let width = containerWidth;
+    let height = 200; // slightly reduced for side-by-side
+    
+    const aspectRatio = width / height;
+    
+    if (aspectRatio < minAspectRatio) {
+      // Too narrow, increase width
+      width = height * minAspectRatio;
+    } else if (aspectRatio > maxAspectRatio) {
+      // Too wide, increase height
+      height = width / maxAspectRatio;
+    }
+    
+    return { width, height };
+  };
+  
+  const [chartDims, setChartDims] = useState({ width: 350, height: 200 });
+  const chartWidth = chartDims.width;
+  const chartHeight = chartDims.height;
+  const margin = { top: 5, right: 2, bottom: 40, left: 46 }; // minimized left/right margins
+  
+  // Update chart dimensions on mount and resize
+  useEffect(() => {
+    const updateDimensions = () => {
+      setChartDims(getChartDimensions());
+    };
+    
+    updateDimensions();
+    window.addEventListener('resize', updateDimensions);
+    
+    return () => window.removeEventListener('resize', updateDimensions);
+  }, []);
+
+  // Render pilot data chart with D3
+  useEffect(() => {
+    if (!pilotChartRef.current || step !== 1 || !d3Loaded || !window.d3) return;
+
+    const svg = window.d3.select(pilotChartRef.current);
+    svg.selectAll('*').remove();
+
+    // Use the actual SVG element width
+    const svgWidth = pilotChartRef.current.width.baseVal.value;
+    const svgHeight = pilotChartRef.current.height.baseVal.value;
+    
+    const width = svgWidth - margin.left - margin.right;
+    const height = svgHeight - margin.top - margin.bottom;
+
+    // Add background
+    svg.append('rect')
+      .attr('width', svgWidth)
+      .attr('height', svgHeight)
+      .attr('fill', 'white');
+
+    const g = svg.append('g')
+      .attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Scales
+    const xScale = window.d3.scaleLinear()
+      .domain([biomarkerRange.min, biomarkerRange.max])
+      .range([0, width]);
+
+    const yScale = window.d3.scaleLinear()
+      .domain([lifespanRange.min, lifespanRange.max])
+      .range([height, 0]);
+
+    // Grid
+    g.append('g')
+      .attr('class', 'grid')
+      .attr('opacity', 0.2)
+      .call(window.d3.axisLeft(yScale).tickSize(-width).tickFormat(''))
+      .selectAll('line')
+      .attr('stroke', '#e2e8f0');
+
+    g.append('g')
+      .attr('class', 'grid')
+      .attr('opacity', 0.2)
+      .attr('transform', `translate(0,${height})`)
+      .call(window.d3.axisBottom(xScale).tickSize(-height).tickFormat(''))
+      .selectAll('line')
+      .attr('stroke', '#e2e8f0');
+
+    // Axes
+    const xAxis = g.append('g')
+      .attr('transform', `translate(0,${height})`)
+      .call(window.d3.axisBottom(xScale).ticks(6));
+    
+    xAxis.selectAll('line').attr('stroke', '#94a3b8');
+    xAxis.selectAll('path').attr('stroke', '#94a3b8');
+    xAxis.selectAll('text').attr('fill', '#64748b').attr('font-size', '13px');
+
+    const yAxis = g.append('g')
+      .call(window.d3.axisLeft(yScale).ticks(5));
+    
+    yAxis.selectAll('line').attr('stroke', '#94a3b8');
+    yAxis.selectAll('path').attr('stroke', '#94a3b8');
+    yAxis.selectAll('text').attr('fill', '#64748b').attr('font-size', '13px');
+
+    // Axis labels - positioned further from ticks
+    g.append('text')
+      .attr('x', width / 2)
+      .attr('y', height + margin.bottom - 6)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', '14px')
+      .attr('font-weight', '600')
+      .attr('fill', '#0f172a')
+      .text('Biomarker');
+
+    g.append('text')
+      .attr('transform', 'rotate(-90)')
+      .attr('x', -height / 2)
+      .attr('y', -margin.left + 14)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', '14px')
+      .attr('font-weight', '600')
+      .attr('fill', '#0f172a')
+      .text('Lifespan (yrs)');
+
+    // Points
+    g.selectAll('.data-point')
+      .data(initialData)
+      .enter()
+      .append('circle')
+      .attr('class', 'data-point')
+      .attr('cx', d => xScale(d.biomarker))
+      .attr('cy', d => yScale(d.lifespan))
+      .attr('r', 4)
+      .attr('fill', '#94a3b8')
+      .attr('stroke', 'none');
+    
+    // Add highlight circles for selected points (separate layer)
+    g.selectAll('.highlight-circle')
+      .data(initialData.filter(d => highlightedPoints.includes(d.id)))
+      .enter()
+      .append('circle')
+      .attr('class', 'highlight-circle')
+      .attr('cx', d => xScale(d.biomarker))
+      .attr('cy', d => yScale(d.lifespan))
+      .attr('r', 10)
+      .attr('fill', 'none')
+      .attr('stroke', '#f59e0b')
+      .attr('stroke-width', 3);
+
+  }, [d3Loaded, step, initialData, highlightedPoints, biomarkerRange.min, biomarkerRange.max, lifespanRange.min, lifespanRange.max, chartWidth, chartHeight]);
+
+  // Render resampled data chart with D3
+  useEffect(() => {
+    if (!resampledChartRef.current || step !== 1 || !d3Loaded || !window.d3) return;
+
+    const svg = window.d3.select(resampledChartRef.current);
+    svg.selectAll('*').remove();
+
+    // Use the actual SVG element width
+    const svgWidth = resampledChartRef.current.width.baseVal.value;
+    const svgHeight = resampledChartRef.current.height.baseVal.value;
+    
+    const width = svgWidth - margin.left - margin.right;
+    const height = svgHeight - margin.top - margin.bottom;
+
+    // Add background
+    svg.append('rect')
+      .attr('width', svgWidth)
+      .attr('height', svgHeight)
+      .attr('fill', 'white');
+
+    const g = svg.append('g')
+      .attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Scales
+    const xScale = window.d3.scaleLinear()
+      .domain([biomarkerRange.min, biomarkerRange.max])
+      .range([0, width]);
+
+    const yScale = window.d3.scaleLinear()
+      .domain([lifespanRange.min, lifespanRange.max])
+      .range([height, 0]);
+
+    // Grid
+    g.append('g')
+      .attr('class', 'grid')
+      .attr('opacity', 0.2)
+      .call(window.d3.axisLeft(yScale).tickSize(-width).tickFormat(''))
+      .selectAll('line')
+      .attr('stroke', '#e2e8f0');
+
+    g.append('g')
+      .attr('class', 'grid')
+      .attr('opacity', 0.2)
+      .attr('transform', `translate(0,${height})`)
+      .call(window.d3.axisBottom(xScale).tickSize(-height).tickFormat(''))
+      .selectAll('line')
+      .attr('stroke', '#e2e8f0');
+
+    // Axes
+    const xAxis = g.append('g')
+      .attr('transform', `translate(0,${height})`)
+      .call(window.d3.axisBottom(xScale).ticks(6));
+    
+    xAxis.selectAll('line').attr('stroke', '#94a3b8');
+    xAxis.selectAll('path').attr('stroke', '#94a3b8');
+    xAxis.selectAll('text').attr('fill', '#64748b').attr('font-size', '13px');
+
+    const yAxis = g.append('g')
+      .call(window.d3.axisLeft(yScale).ticks(5));
+    
+    yAxis.selectAll('line').attr('stroke', '#94a3b8');
+    yAxis.selectAll('path').attr('stroke', '#94a3b8');
+    yAxis.selectAll('text').attr('fill', '#64748b').attr('font-size', '13px');
+
+    // Axis labels - positioned further from ticks
+    g.append('text')
+      .attr('x', width / 2)
+      .attr('y', height + margin.bottom - 6)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', '14px')
+      .attr('font-weight', '600')
+      .attr('fill', '#0f172a')
+      .text('Biomarker');
+
+    g.append('text')
+      .attr('transform', 'rotate(-90)')
+      .attr('x', -height / 2)
+      .attr('y', -margin.left + 14)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', '14px')
+      .attr('font-weight', '600')
+      .attr('fill', '#0f172a')
+      .text('Lifespan (yrs)');
+
+    // Group points by location to show concentric circles
+    // Filter out points with null lifespans
+    const validPoints = resampledData.filter(point => point.lifespan !== null);
+    const locationGroups = {};
+    validPoints.forEach((point, idx) => {
+      const key = `${point.biomarker.toFixed(1)}-${point.lifespan.toFixed(1)}`;
+      if (!locationGroups[key]) {
+        locationGroups[key] = {
+          biomarker: point.biomarker,
+          lifespan: point.lifespan,
+          count: 0
+        };
+      }
+      locationGroups[key].count++;
+    });
+
+    // Draw concentric circles for each location
+    Object.values(locationGroups).forEach(group => {
+      for (let i = 0; i < group.count; i++) {
+        g.append('circle')
+          .attr('cx', xScale(group.biomarker))
+          .attr('cy', yScale(group.lifespan))
+          .attr('r', 3 + i * 2.5)
+          .attr('fill', 'none')
+          .attr('stroke', '#667eea')
+          .attr('stroke-width', 2);
+      }
+    });
+    
+    // Draw points for biomarker-only data (when lifespans are null)
+    const biomarkerOnlyPoints = resampledData.filter(point => point.lifespan === null);
+    biomarkerOnlyPoints.forEach(point => {
+      g.append('circle')
+        .attr('cx', xScale(point.biomarker))
+        .attr('cy', height / 2) // Position in middle of y-axis
+        .attr('r', 4)
+        .attr('fill', '#f59e0b')
+        .attr('stroke', 'white')
+        .attr('stroke-width', 1.5);
+    });
+
+  }, [d3Loaded, step, resampledData, biomarkerRange.min, biomarkerRange.max, lifespanRange.min, lifespanRange.max, chartWidth, chartHeight]);
+
+  // Calculate position of a point within the chart
+  const calculatePointPosition = (point) => {
+    // Use actual SVG width (95% of chartWidth)
+    const actualWidth = Math.floor(chartWidth * 0.95);
+    const width = actualWidth - margin.left - margin.right;
+    const height = chartHeight - margin.top - margin.bottom;
+    
+    // Calculate normalized position (0-1)
+    const xScale = (point.biomarker - biomarkerRange.min) / (biomarkerRange.max - biomarkerRange.min);
+    const yScale = (point.lifespan - lifespanRange.min) / (lifespanRange.max - lifespanRange.min);
+    
+    // Convert to pixel position (note: y is inverted in screen coordinates)
+    return {
+      x: margin.left + xScale * width,
+      y: margin.top + (1 - yScale) * height
+    };
+  };
+
+  // Step 1: Select a random point
+  const selectRandomPoint = () => {
+    const randomIndex = Math.floor(Math.random() * initialData.length);
+    const point = initialData[randomIndex];
+    setCurrentSelectedPoint(point);
+    setHighlightedPoints([point.id]);
+    setInteractionStep(1);
+  };
+
+  // Step 2: Add point to resampled data
+  const addPointToResampled = async () => {
+    if (!currentSelectedPoint) return;
+    
+    setInteractionStep(2);
+    
+    // Get actual DOM positions
+    const leftSVG = pilotChartRef.current;
+    const rightSVG = resampledChartRef.current;
+    const container = chartContainerRef.current?.closest('[style*="grid"]');
+    
+    if (!leftSVG || !rightSVG || !container) {
+      console.error('Cannot find required elements');
+      return;
+    }
+    
+    // Get the step 1 wrapper (the actual parent of the animated point)
+    const step1Wrapper = container.parentElement;
+    if (!step1Wrapper) {
+      console.error('Cannot find step 1 wrapper');
+      return;
+    }
+    
+    const wrapperRect = step1Wrapper.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const leftSVGRect = leftSVG.getBoundingClientRect();
+    const rightSVGRect = rightSVG.getBoundingClientRect();
+    
+    console.log('=== Animation Position Debug ===');
+    console.log('Container element:', container);
+    console.log('Container class/id:', container.className, container.id);
+    console.log('Parent of animated point:', container.parentElement);
+    console.log('Container (grid) rect:', containerRect);
+    console.log('Left SVG rect:', leftSVGRect);
+    console.log('Right SVG rect:', rightSVGRect);
+    console.log('Container top:', containerRect.top);
+    console.log('Left SVG top:', leftSVGRect.top);
+    console.log('Right SVG top:', rightSVGRect.top);
+    console.log('Offset (leftSVG.top - container.top):', leftSVGRect.top - containerRect.top);
+    console.log('Step 1 wrapper rect:', wrapperRect);
+    console.log('Offset from wrapper (leftSVG.top - wrapper.top):', leftSVGRect.top - wrapperRect.top);
+    
+    // Calculate point position within SVG coordinate system
+    const pointInSVG = calculatePointPosition(currentSelectedPoint);
+    console.log('Point in SVG coordinates:', pointInSVG);
+    
+    // Convert to absolute position relative to WRAPPER (not grid)
+    const sourcePos = {
+      x: leftSVGRect.left - wrapperRect.left + pointInSVG.x,
+      y: leftSVGRect.top - wrapperRect.top + pointInSVG.y
+    };
+    
+    const targetPos = {
+      x: rightSVGRect.left - wrapperRect.left + pointInSVG.x,
+      y: rightSVGRect.top - wrapperRect.top + pointInSVG.y
+    };
+    
+    console.log('Source position (relative to wrapper):', sourcePos);
+    console.log('Target position (relative to wrapper):', targetPos);
+    console.log('================================');
+    
+    setAnimatedPointPos(sourcePos);
+    setAnimationTargetPos(targetPos);
+    setAnimatedPoint(currentSelectedPoint);
+    setDropAnimation(true);
+    
+    const delay = resampledData.length === 0 ? 1000 : 400;
+    await new Promise(resolve => setTimeout(resolve, delay));
+    
+    setResampledData(prev => [...prev, { ...currentSelectedPoint, sampleId: prev.length, originalId: currentSelectedPoint.id }]);
+    setHighlightedPoints([]);
+    setAnimatedPoint(null);
+    setAnimatedPointPos(null);
+    setAnimationTargetPos(null);
+    setDropAnimation(false);
+    setCurrentSelectedPoint(null);
+    
+    if (resampledData.length + 1 >= selectedN) {
+      setInteractionStep(3);
+    } else {
+      setInteractionStep(0);
+    }
+  };
+
+  // Step 3: Repeat automatically
+  const repeatSampling = async () => {
+    setInteractionStep(2);
+    
+    const remainingCount = selectedN - resampledData.length;
+    let currentData = [...resampledData];
+    
+    // Get DOM elements once for efficiency
+    const leftSVG = pilotChartRef.current;
+    const rightSVG = resampledChartRef.current;
+    const container = chartContainerRef.current?.closest('[style*="grid"]');
+    
+    if (!leftSVG || !rightSVG || !container) {
+      console.error('Cannot find required elements');
+      return;
+    }
+    
+    // Get the step 1 wrapper (the actual parent of the animated point)
+    const step1Wrapper = container.parentElement;
+    if (!step1Wrapper) {
+      console.error('Cannot find step 1 wrapper');
+      return;
+    }
+    
+    const wrapperRect = step1Wrapper.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const leftSVGRect = leftSVG.getBoundingClientRect();
+    const rightSVGRect = rightSVG.getBoundingClientRect();
+    
+    if (currentData.length === 1) {
+      console.log('=== Repeat Sampling Position Debug (first point) ===');
+      console.log('Container (grid) rect:', containerRect);
+      console.log('Left SVG rect:', leftSVGRect);
+      console.log('Wrapper rect:', wrapperRect);
+      console.log('Offset (leftSVG.top - container.top):', leftSVGRect.top - containerRect.top);
+      console.log('Offset (leftSVG.top - wrapper.top):', leftSVGRect.top - wrapperRect.top);
+    }
+    
+    for (let i = 0; i < remainingCount; i++) {
+      // Select random point
+      const randomIndex = Math.floor(Math.random() * initialData.length);
+      const point = initialData[randomIndex];
+      
+      // Calculate positions
+      const pointInSVG = calculatePointPosition(point);
+      
+      // Use wrapper-relative positioning
+      const sourcePos = {
+        x: leftSVGRect.left - wrapperRect.left + pointInSVG.x,
+        y: leftSVGRect.top - wrapperRect.top + pointInSVG.y
+      };
+      
+      const targetPos = {
+        x: rightSVGRect.left - wrapperRect.left + pointInSVG.x,
+        y: rightSVGRect.top - wrapperRect.top + pointInSVG.y
+      };
+      
+      setAnimatedPoint(point);
+      setAnimatedPointPos(sourcePos);
+      setAnimationTargetPos(targetPos);
+      setDropAnimation(true);
+      
+      // Progressive speed: 400ms for first few, then 300ms for rest
+      const currentCount = currentData.length;
+      let animDelay, pauseDelay;
+      if (currentCount < 3) {
+        animDelay = 400;
+        pauseDelay = 100;
+      } else {
+        animDelay = 300;
+        pauseDelay = 50;
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, animDelay));
+      
+      currentData = [...currentData, { ...point, sampleId: currentData.length, originalId: point.id }];
+      setResampledData(currentData);
+      setDropAnimation(false);
+      
+      await new Promise(resolve => setTimeout(resolve, pauseDelay));
+    }
+    
+    setAnimatedPoint(null);
+    setAnimatedPointPos(null);
+    setAnimationTargetPos(null);
+    setInteractionStep(3);
+  };
+
+  // Step 4: Calculate statistics
+  const calculateStatistics = () => {
+    const result = calculateCorrelation(resampledData);
+    setCorrelationValue(result.r);
+    // P-value and significance will be calculated on page 2
+  };
+
+  // Reset for new resample
+  const resetResampling = () => {
+    setResampledData([]);
+    setHighlightedPoints([]);
+    setCurrentSelectedPoint(null);
+    setAnimatedPoint(null);
+    setAnimatedPointPos(null);
+    setDropAnimation(false);
+    setCorrelationValue(null);
+    setInteractionStep(0);
+    setStep2Completed(false);
+    setIsSignificant(null);
+    setShowSummary(false);
+    setShowEstimatedPower(false);
+    setManyResults([]);
+    // Reset generative model state
+    setXDistributionEstimated(false);
+    setRegressionFitted(false);
+    setBiomarkersSampled(false);
+    setXMean(null);
+    setXSD(null);
+    setRegressionSlope(null);
+    setRegressionIntercept(null);
+    setRegressionRSquared(null);
+    setResidualSD(null);
+    setSampledBiomarkers([]);
+  };
+
+  // Generative Model Functions
+  
+  // 1. Estimate Distribution of X
+  const estimateXDistribution = () => {
+    const xValues = initialData.map(d => d.biomarker);
+    const n = xValues.length;
+    
+    // Calculate mean
+    const mean = xValues.reduce((sum, x) => sum + x, 0) / n;
+    
+    // Calculate standard deviation
+    const variance = xValues.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / (n - 1);
+    const sd = Math.sqrt(variance);
+    
+    setXMean(mean);
+    setXSD(sd);
+    setXDistributionEstimated(true);
+  };
+  
+  // 2. Fit Linear Regression
+  const fitLinearRegression = () => {
+    const n = initialData.length;
+    const xValues = initialData.map(d => d.biomarker);
+    const yValues = initialData.map(d => d.lifespan);
+    
+    // Calculate means
+    const xMean = xValues.reduce((sum, x) => sum + x, 0) / n;
+    const yMean = yValues.reduce((sum, y) => sum + y, 0) / n;
+    
+    // Calculate slope and intercept
+    let numerator = 0;
+    let denominator = 0;
+    
+    for (let i = 0; i < n; i++) {
+      numerator += (xValues[i] - xMean) * (yValues[i] - yMean);
+      denominator += Math.pow(xValues[i] - xMean, 2);
+    }
+    
+    const slope = numerator / denominator;
+    const intercept = yMean - slope * xMean;
+    
+    // Calculate R-squared
+    const predictions = xValues.map(x => intercept + slope * x);
+    const ssRes = yValues.reduce((sum, y, i) => sum + Math.pow(y - predictions[i], 2), 0);
+    const ssTot = yValues.reduce((sum, y) => sum + Math.pow(y - yMean, 2), 0);
+    const rSquared = 1 - (ssRes / ssTot);
+    
+    // Calculate residual standard deviation
+    const residuals = yValues.map((y, i) => y - predictions[i]);
+    const residualVariance = residuals.reduce((sum, r) => sum + r * r, 0) / (n - 2);
+    const residualSD = Math.sqrt(residualVariance);
+    
+    setRegressionSlope(slope);
+    setRegressionIntercept(intercept);
+    setRegressionRSquared(rSquared);
+    setResidualSD(residualSD);
+    setRegressionFitted(true);
+  };
+  
+  // Shared helper: Box-Muller transform for generating normal random numbers
+  const normalRandom = (mean, sd) => {
+    const u1 = Math.random();
+    const u2 = Math.random();
+    const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    return mean + sd * z0;
+  };
+  
+  // Shared helper: Generate synthetic data using the generative model
+  const generateSyntheticData = (n) => {
+    const syntheticData = [];
+    
+    for (let i = 0; i < n; i++) {
+      // Generate biomarker from estimated distribution
+      const x = normalRandom(xMean, xSD);
+      
+      // Generate lifespan from linear model plus residual noise
+      const yPredicted = regressionIntercept + regressionSlope * x;
+      const noise = normalRandom(0, residualSD);
+      const y = yPredicted + noise;
+      
+      syntheticData.push({
+        biomarker: parseFloat(x.toFixed(1)),
+        lifespan: parseFloat(y.toFixed(1)),
+        id: i,
+        sampleId: i
+      });
+    }
+    
+    return syntheticData;
+  };
+  
+  // 3. Sample Biomarkers
+  const sampleBiomarkers = () => {
+    const biomarkers = [];
+    
+    for (let i = 0; i < selectedN; i++) {
+      // Generate X from estimated distribution
+      const x = normalRandom(xMean, xSD);
+      biomarkers.push({
+        biomarker: parseFloat(x.toFixed(1)),
+        lifespan: null, // Will be filled in next step
+        id: i,
+        sampleId: i
+      });
+    }
+    
+    setSampledBiomarkers(biomarkers);
+    setResampledData(biomarkers);
+    setBiomarkersSampled(true);
+  };
+  
+  // 4. Estimate Lifespans
+  const estimateLifespans = () => {
+    const dataWithLifespans = sampledBiomarkers.map((point, i) => {
+      // Generate Y from linear model plus residual noise
+      const yPredicted = regressionIntercept + regressionSlope * point.biomarker;
+      const noise = normalRandom(0, residualSD);
+      const y = yPredicted + noise;
+      
+      return {
+        ...point,
+        lifespan: parseFloat(y.toFixed(1))
+      };
+    });
+    
+    setResampledData(dataWithLifespans);
+    setInteractionStep(3);
+  };
+
+
+  // Calculate Pearson correlation
+  const calculateCorrelation = (data) => {
+    const n = data.length;
+    const sumX = data.reduce((sum, d) => sum + d.biomarker, 0);
+    const sumY = data.reduce((sum, d) => sum + d.lifespan, 0);
+    const sumXY = data.reduce((sum, d) => sum + d.biomarker * d.lifespan, 0);
+    const sumX2 = data.reduce((sum, d) => sum + d.biomarker * d.biomarker, 0);
+    const sumY2 = data.reduce((sum, d) => sum + d.lifespan * d.lifespan, 0);
+    
+    const numerator = n * sumXY - sumX * sumY;
+    const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+    
+    const r = numerator / denominator;
+    
+    // Calculate t-statistic for correlation (correct formula)
+    const t = r * Math.sqrt(n - 2) / Math.sqrt(1 - r * r);
+    
+    // Calculate proper two-tailed p-value using t-distribution
+    // Use jStat library if available, otherwise fallback to approximation
+    let p;
+    if (window.jStat) {
+      const df = n - 2;
+      // Two-tailed p-value: P(|T| > |t|) = 2 * P(T > |t|)
+      p = 2 * (1 - window.jStat.studentt.cdf(Math.abs(t), df));
+    } else {
+      // Fallback approximation if jStat not loaded
+      // This is still crude but better than dividing by 4
+      const df = n - 2;
+      const x = df / (df + t * t);
+      p = 1 - Math.pow(x, df / 2);
+    }
+    
+    return { r, p, significant: p < 0.05 };
+  };
+
+  // Bootstrap resample
+  const bootstrapResample = (data, size) => {
+    const sample = [];
+    const selectedIndices = [];
+    for (let i = 0; i < size; i++) {
+      const randomIndex = Math.floor(Math.random() * data.length);
+      sample.push({ ...data[randomIndex], sampleId: i });
+      selectedIndices.push(randomIndex);
+    }
+    return { sample, selectedIndices };
+  };
+
+  // Step 1: Single resample with animation
+  const performSingleResample = async () => {
+    setIsAnimating(true);
+    setResampledData([]);
+    setHighlightedPoints([]);
+    setAnimatedPoint(null);
+    setAnimatedPointPos(null);
+    setDropAnimation(false);
+    setCorrelationValue(null);
+    
+    const { sample, selectedIndices } = bootstrapResample(initialData, selectedN);
+    
+    // Animate selection process with variable speed
+    for (let i = 0; i < selectedN; i++) {
+      const selectedPointId = selectedIndices[i];
+      const selectedPoint = initialData[selectedIndices[i]];
+      
+      // Determine if we should animate this point
+      let shouldAnimate = false;
+      let highlightTime, dropTime, pauseTime;
+      
+      if (i === 0) {
+        // First point: very slow
+        shouldAnimate = true;
+        highlightTime = 600;
+        dropTime = 400;
+        pauseTime = 200;
+      } else if (i < 5) {
+        // Points 2-5: medium speed
+        shouldAnimate = true;
+        highlightTime = 300;
+        dropTime = 200;
+        pauseTime = 100;
+      } else if (i < 20) {
+        // Points 6-20: animate every 5th point
+        if (i % 5 === 0) {
+          shouldAnimate = true;
+          highlightTime = 150;
+          dropTime = 100;
+          pauseTime = 50;
+        }
+      } else {
+        // Points 21+: animate every 10th point
+        if (i % 10 === 0) {
+          shouldAnimate = true;
+          highlightTime = 100;
+          dropTime = 80;
+          pauseTime = 30;
+        }
+      }
+      
+      if (shouldAnimate) {
+        // Highlight only the point being animated
+        setHighlightedPoints([selectedPointId]);
+        
+        // Show animated drop for this point
+        const pos = calculatePointPosition(selectedPoint);
+        setAnimatedPoint(selectedPoint);
+        setAnimatedPointPos(pos);
+        
+        // Wait to show selection
+        await new Promise(resolve => setTimeout(resolve, highlightTime));
+        
+        // Trigger drop animation
+        setDropAnimation(true);
+        
+        // Wait for drop animation
+        await new Promise(resolve => setTimeout(resolve, dropTime));
+        
+        setHighlightedPoints([]);
+        setAnimatedPoint(null);
+        setAnimatedPointPos(null);
+        setDropAnimation(false);
+        
+        // Brief pause before next selection
+        await new Promise(resolve => setTimeout(resolve, pauseTime));
+      }
+      
+      // Always add to resampled data (whether animated or not)
+      setResampledData(prev => [...prev, { ...selectedPoint, sampleId: i }]);
+    }
+    
+    const result = calculateCorrelation(sample);
+    setCorrelationValue(result.r);
+    setPValue(result.p);
+    setIsSignificant(result.significant);
+    setIsAnimating(false);
+  };
+
+  // Step 2: Many generations at same n using generative model
+  const performManyResamples = async () => {
+    setIsCalculating(true);
+    const results = [...manyResults]; // Keep the first result (user's sample)
+    const iterations = 99; // Add 99 more to make 100 total
+    
+    for (let i = 0; i < iterations; i++) {
+      // Generate synthetic data using the shared helper
+      const syntheticData = generateSyntheticData(selectedN);
+      
+      const result = calculateCorrelation(syntheticData);
+      results.push({
+        iteration: i + 1,
+        r: result.r,
+        significant: result.significant
+      });
+      
+      if (i % 10 === 0) {
+        setManyResults([...results]);
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    }
+    
+    setManyResults(results);
+    setIsCalculating(false);
+  };
+
+  // Step 3: Power curve across sample sizes using generative model
+  const calculatePowerCurve = async () => {
+    setIsCalculating(true);
+    const sampleSizes = [5, 7, 10, 12, 15, 20, 25, 35, 50, 75, 100, 200];
+    const iterations = 100; // 100 generations per sample size
+    const existingData = [...powerCurve];
+    const powerData = [...existingData];
+
+    for (let n of sampleSizes) {
+      // Skip if already in the curve
+      if (powerData.find(p => p.n === n)) continue;
+      
+      let significantCount = 0;
+      
+      for (let i = 0; i < iterations; i++) {
+        // Generate synthetic data using the shared helper
+        const syntheticData = generateSyntheticData(n);
+        
+        const result = calculateCorrelation(syntheticData);
+        if (result.significant) significantCount++;
+      }
+      
+      const power = (significantCount / iterations) * 100;
+      powerData.push({ 
+        n, 
+        power: parseFloat(power.toFixed(1)),
+        significant: significantCount,
+        resamples: iterations
+      });
+      powerData.sort((a, b) => a.n - b.n);
+      setPowerCurve([...powerData]);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    setIsCalculating(false);
+  };
+
+  // Parse and validate n input
+  const parseNInput = (input) => {
+    // Split by commas and/or spaces
+    const values = input.split(/[\s,]+/).filter(v => v.length > 0);
+    
+    // Parse and validate each value
+    const parsedValues = values
+      .map(v => parseInt(v, 10))
+      .filter(n => !isNaN(n));
+    
+    const originalCount = parsedValues.length;
+    const clampedValues = parsedValues.map(n => Math.max(1, Math.min(1000, n))); // Clamp to [1, 1000]
+    const wasClamped = parsedValues.some((n, i) => n !== clampedValues[i]);
+    
+    // Get existing n values from powerCurve
+    const existingNs = new Set(powerCurve.map(p => p.n));
+    
+    // Remove duplicates from input and filter out those already in table
+    const uniqueNewValues = [...new Set(clampedValues)].filter(n => !existingNs.has(n));
+    const hadDuplicates = clampedValues.length !== uniqueNewValues.length;
+    
+    return { values: uniqueNewValues, wasClamped, hadDuplicates };
+  };
+
+  // Handle custom n input submission
+  const handleNInputSubmit = async () => {
+    const { values: nValues, wasClamped, hadDuplicates } = parseNInput(nInput);
+    
+    // Generate feedback message
+    let messages = [];
+    if (wasClamped) {
+      messages.push('Values truncated to [1, 1000]');
+    }
+    if (hadDuplicates) {
+      messages.push('Duplicates removed');
+    }
+    if (messages.length > 0) {
+      setValidationMessage(messages.join('; '));
+      setTimeout(() => setValidationMessage(''), 3000);
+    }
+    
+    if (nValues.length === 0) {
+      return; // No valid values to process
+    }
+    
+    setIsCalculating(true);
+    const iterations = 100;
+    const powerData = [...powerCurve];
+    
+    for (let n of nValues) {
+      let significantCount = 0;
+      
+      for (let i = 0; i < iterations; i++) {
+        // Generate synthetic data using the shared helper
+        const syntheticData = generateSyntheticData(n);
+        
+        const result = calculateCorrelation(syntheticData);
+        if (result.significant) significantCount++;
+      }
+      
+      const power = (significantCount / iterations) * 100;
+      powerData.push({ 
+        n, 
+        power: parseFloat(power.toFixed(1)),
+        significant: significantCount,
+        resamples: iterations
+      });
+      
+      // Update summary for the last processed n
+      setCurrentDisplayN(n);
+      setManyResults(Array(iterations).fill(null).map((_, i) => ({
+        iteration: i,
+        r: 0,
+        significant: i < significantCount
+      })));
+      
+      powerData.sort((a, b) => a.n - b.n);
+      setPowerCurve([...powerData]);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    setIsCalculating(false);
+    setNInput(''); // Clear input after submission
+  };
+
+  // Prefill standard n values
+  const prefillStandardN = () => {
+    const standardValues = [5, 7, 10, 12, 15, 20, 25, 35, 50, 75, 100, 200];
+    setNInput(standardValues.join(', '));
+  };
+
+  // Check user's answer for n at 80% power
+  const checkAnswer = () => {
+    const answer = parseFloat(userAnswer);
+    
+    if (isNaN(answer) || answer <= 0) {
+      setAnswerFeedback('invalid');
+      return;
+    }
+    
+    // For this dataset with r ≈ 0.30, approximately 75-85 samples are needed for 80% power
+    // Accept any answer within 0.85x - 1.15x of the true value (~80)
+    const targetN = 80;
+    const lowerBound = targetN * 0.85;  // 68
+    const upperBound = targetN * 1.15;  // 92
+    
+    console.log('=== Answer Check Debug ===');
+    console.log('User answer:', answer);
+    console.log('Target n for 80% power:', targetN);
+    console.log('Acceptable range:', lowerBound, '-', upperBound);
+    
+    if (answer >= lowerBound && answer <= upperBound) {
+      setAnswerFeedback('correct');
+    } else {
+      setAnswerFeedback('incorrect');
+    }
+  };
+
+  // Calculate and log initial data correlation on mount
+  useEffect(() => {
+    const initialCorrelation = calculateCorrelation(initialData);
+    console.log('=== Initial Data Correlation ===');
+    console.log('Sample size (n):', initialData.length);
+    console.log('Correlation (r):', initialCorrelation.r.toFixed(4));
+    console.log('P-value (p):', initialCorrelation.p.toFixed(4));
+    console.log('Significant (p < 0.05):', initialCorrelation.significant);
+    console.log('Initial data:', initialData);
+  }, []); // Empty dependency array means this runs once on mount
+
+  // Calculate these values during render
+  const significantCount = manyResults.filter(r => r.significant).length;
+  const estimatedPower = manyResults.length > 0 ? ((significantCount / manyResults.length) * 100).toFixed(1) : 0;
+
+  return (
+    <div style={{ 
+      minHeight: '100vh', 
+      background: '#f8fafc',
+      color: '#0f172a',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      padding: '20px'
+    }}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        
+        {/* Main Content */}
+        <div style={{ marginBottom: '20px' }}>
+          
+          {/* Global Styles */}
+          <style>{`
+            .action-button {
+              transition: all 0.2s ease;
+            }
+            .action-button:not(:disabled):hover {
+              transform: translateY(-1px);
+              box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+            }
+            .action-button:not(:disabled):active {
+              transform: translateY(0);
+              box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            }
+            
+            /* Standard button styles */
+            .btn-primary {
+              padding: 10px 12px;
+              background: #667eea;
+              border: 2px solid #667eea;
+              border-radius: 8px;
+              color: white;
+              font-size: 12px;
+              font-weight: 600;
+              cursor: pointer;
+              text-align: center;
+              box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+            }
+            
+            .btn-primary:disabled {
+              background: #e2e8f0;
+              border: 2px solid #e2e8f0;
+              color: #94a3b8;
+              cursor: not-allowed;
+              box-shadow: none;
+              font-weight: 600;
+            }
+            
+            .btn-secondary {
+              padding: 8px;
+              background: #e2e8f0;
+              border: 2px solid #cbd5e1;
+              border-radius: 8px;
+              color: #64748b;
+              font-size: 11px;
+              font-weight: 600;
+              cursor: pointer;
+              text-align: center;
+            }
+            
+            .btn-secondary:disabled {
+              border: 2px solid #cbd5e1;
+              cursor: not-allowed;
+              opacity: 0.5;
+              font-weight: 600;
+            }
+            
+            /* Standard stats box */
+            .stats-box {
+              padding: 10px;
+              background: white;
+              border: 2px solid #e2e8f0;
+              border-radius: 8px;
+              min-height: 90px;
+            }
+            
+            /* Compact stats box for grid items */
+            .stats-box-compact {
+              padding: 4px;
+              background: white;
+              border: 2px solid #e2e8f0;
+              border-radius: 8px;
+              min-height: 85px;
+            }
+            
+            /* Standard data table container */
+            .data-table-container {
+              border: 2px solid #e2e8f0;
+              border-radius: 8px;
+              background: white;
+              height: 280px;
+              overflow-y: auto;
+            }
+          `}</style>
+          
+          {/* Visualization Panel */}
+          <div style={{ 
+            background: 'white', 
+            padding: '16px', 
+            borderRadius: '8px',
+            border: '2px solid #e2e8f0',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+            marginBottom: '16px'
+          }}>
+
+            {/* Step 1: Side-by-side layout with proper data tables */}
+            {step === 1 && (
+              <div style={{ 
+                position: 'relative',
+                ...(animationTargetPos && animatedPointPos && {
+                  '--anim-distance': `${animationTargetPos.x - animatedPointPos.x}px`
+                })
+              }}>
+                
+                {/* Instruction Box */}
+                <div style={{
+                  background: '#f0f9ff',
+                  border: '2px solid #3b82f6',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  marginBottom: '20px'
+                }}>
+                  <div style={{ fontSize: '14px', color: '#1e3a8a', lineHeight: '1.5' }}>
+                    <strong>Build a generative model</strong> by estimating the distribution of X, fitting a linear regression of Y on X, then generating new data of sample size <i>n</i>.
+                  </div>
+                </div>
+                
+                {/* Animated dropping point - positioned at container level to show above all columns */}
+                {animatedPoint && animatedPointPos && dropAnimation && animationTargetPos && (
+                  <div 
+                    style={{
+                      position: 'absolute',
+                      top: startAnimation ? `${animationTargetPos.y}px` : `${animatedPointPos.y}px`,
+                      left: startAnimation ? `${animationTargetPos.x}px` : `${animatedPointPos.x}px`,
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '50%',
+                      background: '#f59e0b',
+                      border: '2px solid #d97706',
+                      pointerEvents: 'none',
+                      zIndex: 100,
+                      transform: 'translate(-50%, -50%)',
+                      transition: `all ${resampledData.length === 0 ? '1s' : resampledData.length < 3 ? '0.4s' : '0.3s'} ease-in-out`
+                    }}
+                  />
+                )}
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '16px' }}>
+                  
+                  {/* LEFT PANEL: Pilot Data */}
+                  <div style={{ overflowX: 'hidden' }}>
+                    <div style={{ fontSize: '14px', color: '#0f172a', fontWeight: '600', marginBottom: '8px', textAlign: 'center' }}>
+                      Pilot Data (<i>n</i>={initialData.length})
+                    </div>
+                    
+                    {/* Pilot Scatterplot */}
+                    <div style={{ position: 'relative', marginBottom: '12px' }} ref={chartContainerRef}>
+                      <svg ref={pilotChartRef} width={Math.floor(chartWidth * 0.95)} height={chartHeight} style={{ display: 'block' }}></svg>
+                    </div>
+                    
+                    {/* Pilot Data Table */}
+                    <div className="data-table-container">
+                      <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                          <tr>
+                            <th style={{ padding: '6px 4px', textAlign: 'left', color: '#64748b', fontWeight: '600' }}>Index</th>
+                            <th style={{ padding: '6px 4px', textAlign: 'right', color: '#64748b', fontWeight: '600' }}>Biomarker</th>
+                            <th style={{ padding: '6px 4px', textAlign: 'right', color: '#64748b', fontWeight: '600' }}>Lifespan</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {initialData.map((point, idx) => (
+                            <tr 
+                              key={point.id}
+                              style={{ 
+                                background: highlightedPoints.includes(point.id) ? '#fef3c7' : 'white',
+                                borderBottom: '1px solid #e2e8f0'
+                              }}
+                            >
+                              <td style={{ padding: '4px', color: '#64748b' }}>{idx + 1}</td>
+                              <td style={{ padding: '4px', textAlign: 'right', fontWeight: '500', color: '#0f172a' }}>{point.biomarker.toFixed(1)}</td>
+                              <td style={{ padding: '4px', textAlign: 'right', fontWeight: '500', color: '#0f172a' }}>{point.lifespan.toFixed(1)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  
+                  {/* CENTER: Step-by-step controls */}
+                  <div style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    justifyContent: 'center',
+                    gap: '8px',
+                    minWidth: '160px',
+                    maxWidth: '160px'
+                  }}>
+                    
+                    <button
+                      onClick={estimateXDistribution}
+                      disabled={xDistributionEstimated}
+                      className="action-button btn-primary"
+                      style={{ padding: '6px 8px' }}
+                    >
+                      Estimate Distribution of Biomarker
+                    </button>
+                    
+                    <button
+                      onClick={fitLinearRegression}
+                      disabled={!xDistributionEstimated || regressionFitted}
+                      className="action-button btn-primary"
+                      style={{ padding: '6px 8px' }}
+                    >
+                      Fit Linear Regression
+                    </button>
+                    
+                    <button
+                      onClick={sampleBiomarkers}
+                      disabled={!regressionFitted || biomarkersSampled}
+                      className="action-button btn-primary"
+                      style={{ padding: '6px 8px' }}
+                    >
+                      Sample Biomarkers (<i>n</i>={selectedN})
+                    </button>
+                    
+                    <button
+                      onClick={estimateLifespans}
+                      disabled={!biomarkersSampled || (resampledData.length > 0 && resampledData.every(d => d.lifespan !== null))}
+                      className="action-button btn-primary"
+                      style={{ padding: '6px 8px' }}
+                    >
+                      Estimate Lifespans
+                    </button>
+                    
+                    <button
+                      onClick={calculateStatistics}
+                      disabled={resampledData.length === 0 || resampledData.some(d => d.lifespan === null) || correlationValue !== null}
+                      className="action-button btn-primary"
+                      style={{ padding: '6px 8px' }}
+                    >
+                      Calculate Generated Stats
+                    </button>
+                    
+                    {/* Biomarker Distribution Results */}
+                    <div style={{ fontSize: '11px', fontWeight: '600', color: '#0f172a', marginTop: '4px', marginBottom: '2px', textAlign: 'center' }}>
+                      Biomarker Distribution
+                    </div>
+                    <div className="stats-box" style={{ minHeight: '35px', maxHeight: '35px', padding: '4px 6px' }}>
+                      {xDistributionEstimated ? (
+                        <div style={{ fontSize: '11px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
+                            <span style={{ color: '#64748b' }}>Mean (<i>μ</i>):</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{xMean.toFixed(2)}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#64748b' }}>SD (<i>σ</i>):</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{xSD.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          height: '100%',
+                          color: '#64748b',
+                          fontSize: '10px'
+                        }}>
+                          Not estimated
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Regression Results */}
+                    <div style={{ fontSize: '11px', fontWeight: '600', color: '#0f172a', marginTop: '4px', marginBottom: '1px', textAlign: 'center' }}>
+                      Linear Regression
+                    </div>
+                    <div style={{ fontSize: '9px', color: '#64748b', marginBottom: '2px', textAlign: 'center', fontStyle: 'italic' }}>
+                      Lifespan = <i>β</i>₀ + <i>β</i>₁·Biomarker + <i>ε</i>
+                    </div>
+                    <div className="stats-box" style={{ minHeight: '49px', maxHeight: '49px', padding: '4px 6px' }}>
+                      {regressionFitted ? (
+                        <div style={{ fontSize: '10px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
+                            <span style={{ color: '#64748b' }}>Intercept (<i>β</i>₀):</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{regressionIntercept.toFixed(2)}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
+                            <span style={{ color: '#64748b' }}>Slope (<i>β</i>₁):</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{regressionSlope.toFixed(3)}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#64748b' }}>Noise SD (<i>σ</i><sub>ε</sub>):</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{residualSD.toFixed(2)}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          height: '100%',
+                          color: '#64748b',
+                          fontSize: '10px'
+                        }}>
+                          Not fitted
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Generated Stats Results */}
+                    <div style={{ fontSize: '11px', fontWeight: '600', color: '#0f172a', marginTop: '4px', marginBottom: '2px', textAlign: 'center' }}>
+                      Generated Stats
+                    </div>
+                    <div className="stats-box" style={{ minHeight: '35px', maxHeight: '35px', padding: '4px 6px' }}>
+                      {correlationValue !== null ? (
+                        <div style={{ fontSize: '11px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1px' }}>
+                            <span style={{ color: '#64748b' }}>Sample size (<i>n</i>):</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{selectedN}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#64748b' }}>Correlation (<i>r</i>):</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{correlationValue.toFixed(3)}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          height: '100%',
+                          color: '#64748b',
+                          fontSize: '10px'
+                        }}>
+                          Not calculated
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* RIGHT PANEL: Generated Data */}
+                  <div style={{ overflowX: 'hidden' }}>
+                    <div style={{ 
+                      fontSize: '14px', 
+                      color: '#0f172a',
+                      fontWeight: '600',
+                      marginBottom: '8px',
+                      textAlign: 'center'
+                    }}>
+                      Generated Data (<i>n</i>={resampledData.length})
+                    </div>
+                    
+                    {/* Generated Scatterplot */}
+                    <div style={{ marginBottom: '12px' }}>
+                      <svg ref={resampledChartRef} width={Math.floor(chartWidth * 0.95)} height={chartHeight} style={{ display: 'block' }}></svg>
+                    </div>
+                    
+                    {/* Generated Data Table - Fixed height with pre-allocated rows */}
+                    <div className="data-table-container">
+                      <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                          <tr>
+                            <th style={{ padding: '6px 4px', textAlign: 'left', color: '#64748b', fontWeight: '600' }}>Index</th>
+                            <th style={{ padding: '6px 4px', textAlign: 'right', color: '#64748b', fontWeight: '600' }}>Biomarker</th>
+                            <th style={{ padding: '6px 4px', textAlign: 'right', color: '#64748b', fontWeight: '600' }}>Lifespan</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Array.from({ length: selectedN }).map((_, idx) => {
+                            const point = resampledData[idx];
+                            return (
+                              <tr 
+                                key={idx}
+                                style={{ borderBottom: '1px solid #e2e8f0' }}
+                              >
+                                {point ? (
+                                  <>
+                                    <td style={{ padding: '4px', color: '#64748b' }}>{idx + 1}</td>
+                                    <td style={{ padding: '4px', textAlign: 'right', fontWeight: '500', color: '#0f172a' }}>{point.biomarker.toFixed(1)}</td>
+                                    <td style={{ padding: '4px', textAlign: 'right', fontWeight: '500', color: point.lifespan !== null ? '#0f172a' : '#cbd5e1' }}>
+                                      {point.lifespan !== null ? point.lifespan.toFixed(1) : '—'}
+                                    </td>
+                                  </>
+                                ) : (
+                                  <>
+                                    <td style={{ padding: '4px', color: '#cbd5e1' }}>{idx + 1}</td>
+                                    <td style={{ padding: '4px', textAlign: 'right', color: '#cbd5e1' }}>—</td>
+                                    <td style={{ padding: '4px', textAlign: 'right', color: '#cbd5e1' }}>—</td>
+                                  </>
+                                )}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Many synthetic generations */}
+            {step === 2 && (
+              <div>
+                {/* Instruction Box */}
+                <div style={{
+                  background: '#f0f9ff',
+                  border: '2px solid #3b82f6',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  marginBottom: '20px'
+                }}>
+                  <div style={{ fontSize: '14px', color: '#1e3a8a', lineHeight: '1.5' }}>
+                    <strong>Estimate statistical power at <i>n</i> = 20</strong>. First, test whether your generated synthetic data is significant. Then repeat the data generation and testing process 100 times in total.
+                  </div>
+                </div>
+                
+                <style>{`
+                  @keyframes moveToGrid {
+                    0% {
+                      transform: translate(0, 0) scale(1);
+                      opacity: 0.7;
+                    }
+                    100% {
+                      transform: translate(calc(33.33vw + 100px), 280px) scale(0.4);
+                      opacity: 0;
+                    }
+                  }
+                  .animate-to-grid {
+                    animation: moveToGrid 0.8s ease-out forwards;
+                  }
+                  @keyframes highlightPulse {
+                    0%, 100% {
+                      box-shadow: 0 0 0 0 rgba(102, 126, 234, 0);
+                    }
+                    50% {
+                      box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.6);
+                    }
+                  }
+                  .highlight-significant {
+                    animation: highlightPulse 1s ease-in-out 3;
+                    border-color: #667eea !important;
+                  }
+                `}</style>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '16px', alignItems: 'start', marginBottom: '16px' }}>
+                  
+                  {/* LEFT: Stats from Step 1 */}
+                  <div style={{ position: 'relative' }}>
+                    <div style={{ fontSize: '14px', color: '#0f172a', fontWeight: '600', marginBottom: '4px', textAlign: 'center' }}>
+                      Generated Synthetic Data Stats
+                    </div>
+                    <div className="stats-box">
+                      <div style={{ fontSize: '12px', marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                          <span style={{ color: '#64748b' }}>Sample size (<i>n</i>):</span>
+                          <span style={{ fontWeight: '600', color: '#0f172a' }}>{selectedN}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                          <span style={{ color: '#64748b' }}>Correlation (<i>r</i>):</span>
+                          <span style={{ fontWeight: '600', color: '#0f172a' }}>{correlationValue?.toFixed(3) || '—'}</span>
+                        </div>
+                        {pValue !== null && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                            <span style={{ color: '#64748b' }}>P-value (<i>p</i>):</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{pValue.toFixed(4)}</span>
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Classification result - interactive */}
+                      <div style={{
+                        textAlign: 'center',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#64748b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px'
+                      }}>
+                        {isSignificant === true ? (
+                          <>
+                            <span style={{ fontSize: '20px' }}>●</span>
+                            <span>SIGNIFICANT</span>
+                          </>
+                        ) : isSignificant === false ? (
+                          <>
+                            <span style={{ fontSize: '20px' }}>○</span>
+                            <span>NOT SIGNIFICANT</span>
+                          </>
+                        ) : (
+                          'Test for Significance'
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Ghost/duplicate box for animation */}
+                    {animateBox && (
+                      <div 
+                        className="animate-to-grid stats-box"
+                        style={{ 
+                          position: 'absolute',
+                          top: '32px',
+                          left: 0,
+                          right: 0,
+                          pointerEvents: 'none'
+                        }}
+                      >
+                        <div style={{ fontSize: '12px', marginBottom: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                            <span style={{ color: '#64748b' }}>Sample size (<i>n</i>):</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{selectedN}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                            <span style={{ color: '#64748b' }}>Correlation (<i>r</i>):</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{correlationValue?.toFixed(3)}</span>
+                          </div>
+                        </div>
+                        
+                        {/* Classification */}
+                        <div style={{
+                          textAlign: 'center',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: '#64748b',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '6px'
+                        }}>
+                          {isSignificant === true ? (
+                            <>
+                              <span style={{ fontSize: '20px' }}>●</span>
+                              <span>SIGNIFICANT</span>
+                            </>
+                          ) : (
+                            <>
+                              <span style={{ fontSize: '20px' }}>○</span>
+                              <span>NOT SIGNIFICANT</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* CENTER: Controls */}
+                  <div style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    justifyContent: 'center',
+                    gap: '12px',
+                    minWidth: '180px'
+                  }}>
+                    <button
+                      onClick={() => {
+                        // Calculate p-value from the generated data
+                        const result = calculateCorrelation(resampledData);
+                        setPValue(result.p);
+                        setIsSignificant(result.p < 0.05);
+                        setAnimateBox(true);
+                        // Add user's sample as the first generation result after animation delay
+                        setTimeout(() => {
+                          setManyResults([{
+                            iteration: 0,
+                            r: correlationValue,
+                            significant: result.p < 0.05
+                          }]);
+                        }, 800); // Match animation duration
+                      }}
+                      disabled={!correlationValue || isSignificant !== null}
+                      className="action-button btn-primary"
+                    >
+                      Test synthetic data for significance
+                    </button>
+                    
+                    <button
+                      onClick={performManyResamples}
+                      disabled={isSignificant === null || manyResults.length !== 1 || isCalculating}
+                      className="action-button btn-primary"
+                    >
+                      {isCalculating ? 'Running...' : 'Generate 99 More Datasets'}
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        setShowSummary(true);
+                        setHighlightSignificant(true);
+                      }}
+                      disabled={manyResults.length < 100 || showSummary}
+                      className="action-button btn-primary"
+                    >
+                      Count # significant datasets
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        setShowEstimatedPower(true);
+                        setStep2Completed(true);
+                      }}
+                      disabled={!showSummary}
+                      className="action-button btn-primary"
+                    >
+                      Estimate Power
+                    </button>
+                  </div>
+                  
+                  {/* RIGHT: Summary - only show after Count Significant is clicked */}
+                  <div>
+                    <div style={{ fontSize: '14px', color: '#0f172a', fontWeight: '600', marginBottom: '4px', textAlign: 'center' }}>
+                      Estimated Power (<i>n</i> = 20)
+                    </div>
+                    {showSummary && manyResults.length >= 100 ? (
+                      <div className="stats-box">
+                        <div style={{ fontSize: '12px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                            <span style={{ color: '#64748b', fontWeight: '700' }}>Sample size (<i>n</i>):</span>
+                            <span style={{ fontWeight: '700', color: '#0f172a' }}>{selectedN}</span>
+                          </div>
+                          <div style={{ borderTop: '1px solid #e2e8f0', margin: '8px 0' }}></div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                            <span style={{ color: '#64748b' }}># Significant:</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{significantCount}</span>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                            <span style={{ color: '#64748b' }}># Datasets:</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{manyResults.length}</span>
+                          </div>
+                          {showEstimatedPower && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#64748b', fontWeight: '700' }}>Estimated Power:</span>
+                              <span style={{ fontWeight: '700', color: '#0f172a' }}>{estimatedPower}%</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="stats-box" style={{ 
+                        minHeight: '140px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#64748b',
+                        fontSize: '12px'
+                      }}>
+                        Awaiting count
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Grid of 100 synthetic dataset result boxes */}
+                <div>
+                  <div style={{ borderTop: '2px solid #e2e8f0', margin: '20px 0 16px 0' }}></div>
+                  <div style={{ fontSize: '14px', color: '#0f172a', fontWeight: '600', marginBottom: '8px', textAlign: 'center' }}>
+                    100 Generated Datasets Results
+                  </div>
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: 'repeat(10, 1fr)', 
+                    gap: '8px'
+                  }}>
+                    {Array.from({ length: 100 }).map((_, idx) => {
+                      const result = manyResults[idx];
+                      const hasResult = result !== undefined;
+                      const isSignif = result?.significant;
+                      
+                      return (
+                        <div
+                          key={idx}
+                          className={`stats-box-compact ${highlightSignificant && hasResult && isSignif ? 'highlight-significant' : ''}`}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between'
+                          }}
+                          title={result ? `Resample ${idx + 1}\nr = ${result.r.toFixed(3)}\n${result.significant ? 'Significant' : 'Not significant'}` : `Resample ${idx + 1}\nPending`}
+                        >
+                          {/* Header with resample number */}
+                          <div style={{ 
+                            fontSize: '12px', 
+                            color: '#64748b',
+                            fontWeight: '600',
+                            marginBottom: '3px',
+                            textAlign: 'center'
+                          }}>
+                            #{idx + 1}
+                          </div>
+                          
+                          {/* Stats */}
+                          <div style={{ fontSize: '12px', lineHeight: '1.3' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#64748b' }}><i>n</i>:</span>
+                              <span style={{ fontWeight: '600', color: hasResult ? '#0f172a' : '#94a3b8' }}>
+                                {hasResult ? selectedN : '—'}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#64748b' }}><i>r</i>:</span>
+                              <span style={{ fontWeight: '600', color: hasResult ? '#0f172a' : '#94a3b8' }}>
+                                {hasResult ? result.r.toFixed(3) : '—'}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ color: '#64748b' }}><i>p</i>:</span>
+                              <span style={{ fontWeight: '600', color: hasResult ? '#0f172a' : '#94a3b8' }}>
+                                {hasResult ? '< 0.05' : '—'}
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {/* Classification - icon based */}
+                          <div style={{
+                            textAlign: 'center',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            color: '#64748b',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '3px',
+                            marginTop: '2px'
+                          }}>
+                            {hasResult ? (
+                              <>
+                                <span style={{ fontSize: '14px' }}>
+                                  {isSignif ? '●' : '○'}
+                                </span>
+                                <span>{isSignif ? 'SIG' : 'NOT SIG'}</span>
+                              </>
+                            ) : (
+                              <>
+                                <span style={{ fontSize: '14px', color: '#cbd5e1' }}>○</span>
+                                <span style={{ color: '#cbd5e1' }}>—</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Power curve */}
+            {step === 3 && (
+              <div>
+                {/* Instruction Box */}
+                <div style={{
+                  background: '#f0f9ff',
+                  border: '2px solid #3b82f6',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  marginBottom: '20px'
+                }}>
+                  <div style={{ fontSize: '14px', color: '#1e3a8a', lineHeight: '1.5' }}>
+                    <strong>Build an estimated power curve</strong> by repeating the process of estimating statistical power at different values of <i>n</i>.
+                  </div>
+                </div>
+                
+                {/* Grid layout: Summary on left, table on right */}
+                <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '20px', marginBottom: '20px' }}>
+                  
+                  {/* Left: Summary from Step 2 and buttons */}
+                  <div>
+                    <div style={{ fontSize: '14px', color: '#0f172a', fontWeight: '600', marginBottom: '4px', textAlign: 'center' }}>
+                      Estimated Power (<i>n</i>={currentDisplayN})
+                    </div>
+                    <div className="stats-box" style={{ marginBottom: '12px' }}>
+                      <div style={{ fontSize: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                          <span style={{ color: '#64748b', fontWeight: '700' }}>Sample size (<i>n</i>):</span>
+                          <span style={{ fontWeight: '700', color: '#0f172a' }}>{currentDisplayN}</span>
+                        </div>
+                        <div style={{ borderTop: '1px solid #e2e8f0', margin: '8px 0' }}></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                          <span style={{ color: '#64748b' }}># Significant:</span>
+                          <span style={{ fontWeight: '600', color: '#0f172a' }}>{significantCount}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
+                          <span style={{ color: '#64748b' }}># Datasets:</span>
+                          <span style={{ fontWeight: '600', color: '#0f172a' }}>{manyResults.length}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: '#64748b', fontWeight: '700' }}>Estimated Power:</span>
+                          <span style={{ fontWeight: '700', color: '#0f172a' }}>{estimatedPower}%</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Button to add entry to table */}
+                    <button
+                      onClick={() => {
+                        // Add current n=20 result to power curve if not already there
+                        if (powerCurve.length === 0 || !powerCurve.find(p => p.n === selectedN)) {
+                          setPowerCurve([...powerCurve, { 
+                            n: selectedN, 
+                            power: parseFloat(estimatedPower),
+                            significant: significantCount,
+                            resamples: manyResults.length
+                          }].sort((a, b) => a.n - b.n));
+                          setCurrentDisplayN(selectedN);
+                        }
+                      }}
+                      disabled={powerCurve.find(p => p.n === selectedN)}
+                      className="action-button btn-primary"
+                      style={{
+                        width: '100%',
+                        marginBottom: '12px',
+                        padding: '8px',
+                        fontSize: '11px'
+                      }}
+                    >
+                      Add to Table
+                    </button>
+                    
+                    {/* Custom n input section */}
+                    <div style={{ marginBottom: '12px' }}>
+                      <label style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '4px' }}>
+                        Enter sample size(s):
+                      </label>
+                      <input
+                        type="text"
+                        value={nInput}
+                        onChange={(e) => setNInput(e.target.value)}
+                        placeholder="e.g., 30, 40, 50"
+                        disabled={isCalculating}
+                        style={{
+                          width: '100%',
+                          padding: '8px',
+                          fontSize: '12px',
+                          border: '2px solid #cbd5e1',
+                          borderRadius: '6px',
+                          fontFamily: 'monospace',
+                          marginBottom: '8px',
+                          boxSizing: 'border-box'
+                        }}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter' && !isCalculating) {
+                            handleNInputSubmit();
+                          }
+                        }}
+                      />
+                      {validationMessage && (
+                        <div style={{ 
+                          fontSize: '11px', 
+                          color: '#f59e0b', 
+                          marginBottom: '8px',
+                          fontStyle: 'italic'
+                        }}>
+                          {validationMessage}
+                        </div>
+                      )}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                        <button
+                          onClick={prefillStandardN}
+                          disabled={isCalculating}
+                          className="action-button btn-secondary"
+                        >
+                          Use Default ns
+                        </button>
+                        <button
+                          onClick={handleNInputSubmit}
+                          disabled={isCalculating || !nInput.trim()}
+                          className="action-button btn-primary"
+                          style={{
+                            padding: '8px',
+                            fontSize: '11px'
+                          }}
+                        >
+                          {isCalculating ? 'Running...' : 'Generate Datasets'}
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {/* Button to show power curve */}
+                    <button
+                      onClick={() => setShowPowerCurve(true)}
+                      disabled={powerCurve.length < 2}
+                      className="action-button btn-primary"
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        fontSize: '11px'
+                      }}
+                    >
+                      Plot Estimated Power
+                    </button>
+                    
+                    {/* Question section - always visible but disabled until plot is shown */}
+                    <div style={{ 
+                      marginTop: '16px', 
+                      padding: '12px', 
+                      background: '#fef3c7', 
+                      border: '2px solid #fbbf24', 
+                      borderRadius: '8px',
+                      opacity: showPowerCurve ? 1 : 0.5
+                    }}>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#92400e', marginBottom: '8px' }}>
+                        What sample size do you need to reach an estimated power of 80%?
+                      </div>
+                      <input
+                        type="number"
+                        value={userAnswer}
+                        onChange={(e) => {
+                          setUserAnswer(e.target.value);
+                          setAnswerFeedback(null);
+                        }}
+                        placeholder="Enter sample size"
+                        disabled={!showPowerCurve || answerFeedback === 'correct'}
+                        style={{
+                          width: '100%',
+                          padding: '8px',
+                          fontSize: '12px',
+                          border: '2px solid #fbbf24',
+                          borderRadius: '6px',
+                          marginBottom: '8px',
+                          boxSizing: 'border-box',
+                          cursor: (!showPowerCurve || answerFeedback === 'correct') ? 'not-allowed' : 'text'
+                        }}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter' && showPowerCurve && answerFeedback !== 'correct') {
+                            checkAnswer();
+                          }
+                        }}
+                      />
+                      <button
+                        onClick={checkAnswer}
+                        disabled={!showPowerCurve || !userAnswer.trim() || answerFeedback === 'correct'}
+                        className="action-button btn-primary"
+                        style={{
+                          width: '100%',
+                          fontSize: '11px',
+                          padding: '8px'
+                        }}
+                      >
+                        Check Answer
+                      </button>
+                      
+                      {/* Feedback messages */}
+                      {answerFeedback === 'correct' && (
+                        <div style={{ marginTop: '8px', padding: '8px', background: '#d1fae5', border: '1px solid #10b981', borderRadius: '6px', fontSize: '12px', color: '#065f46', fontWeight: '600' }}>
+                          Correct!
+                        </div>
+                      )}
+                      {answerFeedback === 'incorrect' && (
+                        <div style={{ marginTop: '8px', padding: '8px', background: '#fee2e2', border: '1px solid #ef4444', borderRadius: '6px', fontSize: '12px', color: '#991b1b', fontWeight: '600' }}>
+                          Incorrect. Look at where the power curve crosses 80% on the y-axis.
+                        </div>
+                      )}
+                      {answerFeedback === 'invalid' && (
+                        <div style={{ marginTop: '8px', padding: '8px', background: '#fee2e2', border: '1px solid #ef4444', borderRadius: '6px', fontSize: '12px', color: '#991b1b', fontWeight: '600' }}>
+                          Please enter a valid positive number.
+                        </div>
+                      )}
+                      {answerFeedback === 'insufficient' && (
+                        <div style={{ marginTop: '8px', padding: '8px', background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: '6px', fontSize: '12px', color: '#92400e', fontWeight: '600' }}>
+                          Add more sample sizes to your power curve to answer this question accurately.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Right: Data table */}
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#0f172a', marginBottom: '4px', textAlign: 'center' }}>
+                      Estimated Power by Sample Size
+                    </div>
+                    <div className="data-table-container" style={{ height: '440px' }}>
+                      <table style={{ width: '100%', fontSize: '12px', borderCollapse: 'collapse' }}>
+                        <thead style={{ position: 'sticky', top: 0, background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                          <tr>
+                            <th style={{ padding: '6px 4px', textAlign: 'right', color: '#64748b', fontWeight: '700', fontStyle: 'italic' }}>n</th>
+                            <th style={{ padding: '6px 4px', textAlign: 'right', color: '#64748b', fontWeight: '600' }}># Sig</th>
+                            <th style={{ padding: '6px 4px', textAlign: 'right', color: '#64748b', fontWeight: '600' }}># Data</th>
+                            <th style={{ padding: '6px 4px', textAlign: 'right', color: '#64748b', fontWeight: '700' }}>Est. Power (%)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {powerCurve.length > 0 ? (
+                            powerCurve.map((point, idx) => (
+                              <tr 
+                                key={idx}
+                                style={{ 
+                                  borderBottom: '1px solid #e2e8f0',
+                                  background: 'white'
+                                }}
+                              >
+                                <td style={{ padding: '4px', textAlign: 'right', color: '#0f172a', fontWeight: '700' }}>
+                                  {point.n}
+                                </td>
+                                <td style={{ padding: '4px', textAlign: 'right', color: '#0f172a', fontWeight: '500' }}>
+                                  {point.significant}
+                                </td>
+                                <td style={{ padding: '4px', textAlign: 'right', color: '#0f172a', fontWeight: '500' }}>
+                                  {point.resamples}
+                                </td>
+                                <td style={{ padding: '4px', textAlign: 'right', color: '#0f172a', fontWeight: '700' }}>
+                                  {point.power}
+                                </td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan="4" style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>
+                                No data yet. Add the summary above to start.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Power curve visualization */}
+                {showPowerCurve && powerCurve.length >= 1 && (
+                  <div>
+                    {/* Line chart with fixed x-axis */}
+                    <div style={{ 
+                      background: 'white',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '8px',
+                      padding: '20px',
+                      marginBottom: '20px'
+                    }}>
+                      <div style={{ fontSize: '14px', fontWeight: '600', color: '#0f172a', marginBottom: '16px', textAlign: 'center' }}>
+                        Estimated Power vs Sample Size
+                      </div>
+                      <svg width="100%" height="300" viewBox="0 0 800 300" style={{ maxWidth: '800px', margin: '0 auto', display: 'block' }}>
+                        {/* Chart background */}
+                        <rect width="800" height="300" fill="#f8fafc" />
+                        
+                        {/* Create scales with fixed domain */}
+                        {(() => {
+                          const padding = { top: 20, right: 40, bottom: 50, left: 60 };
+                          const svgWidth = 800;
+                          const svgHeight = 300;
+                          const chartWidth = svgWidth - padding.left - padding.right;
+                          const chartHeight = svgHeight - padding.top - padding.bottom;
+                          
+                          // Dynamic domain based on data range
+                          const dataMinN = Math.min(...powerCurve.map(p => p.n));
+                          const dataMaxN = Math.max(...powerCurve.map(p => p.n));
+                          const minN = Math.max(1, Math.floor(dataMinN * 0.9)); // 10% padding below
+                          const maxN = Math.ceil(dataMaxN * 1.1); // 10% padding above
+                          
+                          const xScale = (n) => padding.left + ((n - minN) / (maxN - minN)) * chartWidth;
+                          const yScale = (power) => padding.top + chartHeight - (power / 100) * chartHeight;
+                          
+                          // Generate nice x-axis ticks
+                          const generateXTicks = () => {
+                            const range = maxN - minN;
+                            const roughTickCount = 6;
+                            const roughTickSize = range / roughTickCount;
+                            const magnitude = Math.pow(10, Math.floor(Math.log10(roughTickSize)));
+                            const niceTickSize = magnitude * Math.ceil(roughTickSize / magnitude);
+                            
+                            const ticks = [];
+                            let tick = Math.ceil(minN / niceTickSize) * niceTickSize;
+                            while (tick <= maxN) {
+                              if (tick >= minN) ticks.push(tick);
+                              tick += niceTickSize;
+                            }
+                            return ticks;
+                          };
+                          
+                          const xTicks = generateXTicks();
+                          
+                          return (
+                            <g>
+                              {/* Horizontal grid lines (at every 20% on y-axis) */}
+                              {[0, 20, 40, 60, 80, 100].map(power => (
+                                <g key={`h-${power}`}>
+                                  <line
+                                    x1={padding.left}
+                                    y1={yScale(power)}
+                                    x2={padding.left + chartWidth}
+                                    y2={yScale(power)}
+                                    stroke="#e2e8f0"
+                                    strokeWidth="1"
+                                  />
+                                  <text
+                                    x={padding.left - 10}
+                                    y={yScale(power)}
+                                    textAnchor="end"
+                                    dominantBaseline="middle"
+                                    fontSize="12"
+                                    fill="#64748b"
+                                  >
+                                    {power}%
+                                  </text>
+                                </g>
+                              ))}
+                              
+                              {/* Vertical grid lines (at x-axis tick positions) */}
+                              {xTicks.map(n => (
+                                <line
+                                  key={`v-${n}`}
+                                  x1={xScale(n)}
+                                  y1={padding.top}
+                                  x2={xScale(n)}
+                                  y2={padding.top + chartHeight}
+                                  stroke="#e2e8f0"
+                                  strokeWidth="1"
+                                />
+                              ))}
+                              
+                              {/* X-axis ticks dynamically generated */}
+                              {xTicks.map(n => (
+                                <g key={n}>
+                                  <line
+                                    x1={xScale(n)}
+                                    y1={padding.top + chartHeight}
+                                    x2={xScale(n)}
+                                    y2={padding.top + chartHeight + 5}
+                                    stroke="#94a3b8"
+                                    strokeWidth="1"
+                                  />
+                                  <text
+                                    x={xScale(n)}
+                                    y={padding.top + chartHeight + 20}
+                                    textAnchor="middle"
+                                    fontSize="12"
+                                    fill="#64748b"
+                                  >
+                                    {n}
+                                  </text>
+                                </g>
+                              ))}
+                              
+                              {/* Axis labels */}
+                              <text
+                                x={padding.left + chartWidth / 2}
+                                y={svgHeight - 10}
+                                textAnchor="middle"
+                                fontSize="14"
+                                fontWeight="600"
+                                fill="#0f172a"
+                              >
+                                Sample Size (<tspan fontStyle="italic">n</tspan>)
+                              </text>
+                              
+                              <text
+                                x={20}
+                                y={padding.top + chartHeight / 2}
+                                textAnchor="middle"
+                                fontSize="14"
+                                fontWeight="600"
+                                fill="#0f172a"
+                                transform={`rotate(-90, 20, ${padding.top + chartHeight / 2})`}
+                              >
+                                Estimated Power (%)
+                              </text>
+                              
+                              {/* Power curve line */}
+                              {powerCurve.length > 1 && (
+                                <polyline
+                                  points={powerCurve.map(point => `${xScale(point.n)},${yScale(point.power)}`).join(' ')}
+                                  fill="none"
+                                  stroke="#667eea"
+                                  strokeWidth="3"
+                                />
+                              )}
+                              
+                              {/* Data points */}
+                              {powerCurve.map(point => (
+                                <circle
+                                  key={point.n}
+                                  cx={xScale(point.n)}
+                                  cy={yScale(point.power)}
+                                  r="5"
+                                  fill="#667eea"
+                                  stroke="white"
+                                  strokeWidth="2"
+                                >
+                                  <title>n = {point.n}: {point.power}% power</title>
+                                </circle>
+                              ))}
+                            </g>
+                          );
+                        })()}
+                      </svg>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Step Navigation at Bottom */}
+        <div style={{ 
+          display: 'flex', 
+          gap: '8px', 
+          marginTop: '20px',
+          paddingTop: '20px',
+          borderTop: '2px solid #e2e8f0',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <div style={{ display: 'flex', gap: '8px', flex: 1, justifyContent: 'center' }}>
+            {['Generate Data (<i>n</i> = 20)', 'Estimate Power (<i>n</i> = 20)', 'Generate Estimated Power Curve'].map((label, idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  setStep(idx + 1);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                disabled={
+                  (idx === 1 && correlationValue === null) || // Can't go to step 2 without completing step 1
+                  (idx === 2 && !showEstimatedPower) // Can't go to step 3 without estimating power
+                }
+                style={{
+                  padding: '8px 16px',
+                  background: step === idx + 1 ? '#667eea' : 'white',
+                  border: step === idx + 1 ? 'none' : '2px solid #e2e8f0',
+                  color: step === idx + 1 ? 'white' : '#64748b',
+                  borderRadius: '6px',
+                  cursor: (idx === 1 && correlationValue === null) || (idx === 2 && !showEstimatedPower) ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  transition: 'all 0.2s',
+                  opacity: (idx === 1 && correlationValue === null) || (idx === 2 && !showEstimatedPower) ? 0.5 : 1
+                }}
+                dangerouslySetInnerHTML={{ __html: `${idx + 1}. ${label}` }}
+              >
+              </button>
+            ))}
+          </div>
+          
+          {/* Reset Button */}
+          <button
+            onClick={resetResampling}
+            disabled={resampledData.length === 0}
+            className="action-button"
+            style={{
+              padding: '8px 16px',
+              background: 'white',
+              border: '2px solid #e2e8f0',
+              borderRadius: '6px',
+              color: '#64748b',
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: resampledData.length === 0 ? 'not-allowed' : 'pointer',
+              boxShadow: resampledData.length > 0 ? '0 1px 3px rgba(0, 0, 0, 0.1)' : 'none',
+              opacity: resampledData.length === 0 ? 0.5 : 1,
+              transition: 'all 0.2s'
+            }}
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Render the component immediately
+
+    // Render the component
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<BootstrapPowerAnalysis />);
+  </script>
+</body>
+</html>
