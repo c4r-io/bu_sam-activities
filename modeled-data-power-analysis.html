@@ -386,7 +386,17 @@ const BootstrapPowerAnalysis = () => {
       .attr('x2', xScale(biomarkerMean))
       .attr('y2', gaussianTop + gaussianHeight)
       .attr('stroke', '#1e40af')
-      .attr('stroke-width', 2.5)
+      .attr('stroke-width', 1.5)
+      .attr('stroke-dasharray', '5,3');
+    
+    // Mean lifespan line - horizontal dashed line
+    modelGroup.append('line')
+      .attr('x1', margin.left)
+      .attr('y1', yScale(meanLifespan))
+      .attr('x2', margin.left + width)
+      .attr('y2', yScale(meanLifespan))
+      .attr('stroke', '#7c3aed')
+      .attr('stroke-width', 1.5)
       .attr('stroke-dasharray', '5,3');
     
     // Generated data points
