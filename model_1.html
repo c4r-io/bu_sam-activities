@@ -143,7 +143,7 @@ const BootstrapPowerAnalysis = () => {
   // User-specified parameters for data generation
   const [biomarkerMean, setBiomarkerMean] = useState(40);
   const [biomarkerSD, setBiomarkerSD] = useState(15);
-  const [modelSlope, setModelSlope] = useState(0.12);
+  const [modelSlope, setModelSlope] = useState(0);
   const [meanLifespan, setMeanLifespan] = useState(70); // Mean lifespan at mean biomarker
   const [errorSD, setErrorSD] = useState(8);
   
@@ -328,17 +328,6 @@ const BootstrapPowerAnalysis = () => {
     const y100Upper = y100 + errorSD;
     const y100Lower = y100 - errorSD;
     
-    modelGroup.append('polygon')
-      .attr('points', `
-        ${xScale(0)},${yScale(y0Lower)}
-        ${xScale(100)},${yScale(y100Lower)}
-        ${xScale(100)},${yScale(y100Upper)}
-        ${xScale(0)},${yScale(y0Upper)}
-      `)
-      .attr('fill', '#ddd6fe')
-      .attr('opacity', 0.4)
-      .attr('clip-path', 'url(#plotClip)');
-    
     // Clip path for the plot area
     svg.append('defs')
       .append('clipPath')
@@ -349,26 +338,6 @@ const BootstrapPowerAnalysis = () => {
       .attr('width', width)
       .attr('height', modelHeight);
     
-    // +1 SD line (upper) - can extend beyond plot
-    modelGroup.append('line')
-      .attr('x1', xScale(0))
-      .attr('y1', yScale(y0Upper))
-      .attr('x2', xScale(100))
-      .attr('y2', yScale(y100Upper))
-      .attr('stroke', '#c4b5fd')
-      .attr('stroke-width', 2)
-      .attr('stroke-dasharray', '6,3');
-    
-    // -1 SD line (lower) - can extend beyond plot
-    modelGroup.append('line')
-      .attr('x1', xScale(0))
-      .attr('y1', yScale(y0Lower))
-      .attr('x2', xScale(100))
-      .attr('y2', yScale(y100Lower))
-      .attr('stroke', '#c4b5fd')
-      .attr('stroke-width', 2)
-      .attr('stroke-dasharray', '6,3');
-    
     // Main regression line
     modelGroup.append('line')
       .attr('x1', xScale(0))
@@ -376,28 +345,71 @@ const BootstrapPowerAnalysis = () => {
       .attr('x2', xScale(100))
       .attr('y2', yScale(y100))
       .attr('stroke', '#8b5cf6')
-      .attr('stroke-width', 3.5);
+      .attr('stroke-width', 3.5)
+      .attr('stroke-dasharray', '6,3');
     
-    // Mean biomarker line - EXTENDED from linear model to Gaussian
+    // Standard deviation ellipses showing where data points will fall
     const gaussianTop = margin.top + modelHeight + gap;
-    modelGroup.append('line')
-      .attr('x1', xScale(biomarkerMean))
-      .attr('y1', margin.top)
-      .attr('x2', xScale(biomarkerMean))
-      .attr('y2', gaussianTop + gaussianHeight)
-      .attr('stroke', '#1e40af')
-      .attr('stroke-width', 1.5)
-      .attr('stroke-dasharray', '5,3');
     
-    // Mean lifespan line - horizontal dashed line
-    modelGroup.append('line')
-      .attr('x1', margin.left)
-      .attr('y1', yScale(meanLifespan))
-      .attr('x2', margin.left + width)
-      .attr('y2', yScale(meanLifespan))
-      .attr('stroke', '#7c3aed')
+    // Calculate the center point where means intersect
+    const centerX = xScale(biomarkerMean);
+    const centerY = yScale(meanLifespan);
+    
+    // Width (x-axis): determined by biomarker SD
+    const biomarkerSD1RadiusX = Math.abs(xScale(biomarkerMean + biomarkerSD) - xScale(biomarkerMean));
+    const biomarkerSD2RadiusX = Math.abs(xScale(biomarkerMean + 2 * biomarkerSD) - xScale(biomarkerMean));
+    
+    // Height (y-axis): determined by error SD of the lifespan model
+    const errorSD1RadiusY = Math.abs(yScale(meanLifespan) - yScale(meanLifespan + errorSD));
+    const errorSD2RadiusY = Math.abs(yScale(meanLifespan) - yScale(meanLifespan + 2 * errorSD));
+    
+    // Calculate rotation angle based on slope and plot aspect ratio
+    // The visual angle depends on how the slope translates to pixels
+    // For a unit change in biomarker (x), lifespan (y) changes by modelSlope
+    // We need to convert this to visual pixel space
+    const xPixelsPerUnit = Math.abs(xScale(biomarkerMean + 1) - xScale(biomarkerMean));
+    const yPixelsPerUnit = Math.abs(yScale(meanLifespan) - yScale(meanLifespan + 1));
+    
+    // Visual slope in pixel space
+    const visualSlope = modelSlope * (yPixelsPerUnit / xPixelsPerUnit);
+    
+    // Calculate rotation angle
+    const rotationRadians = Math.atan(visualSlope);
+    const rotationDegrees = -(rotationRadians * 180 / Math.PI); // Negative because SVG y-axis is inverted
+    
+    // Draw ±2 SD ellipse (outer, lighter)
+    modelGroup.append('ellipse')
+      .attr('cx', centerX)
+      .attr('cy', centerY)
+      .attr('rx', biomarkerSD2RadiusX)  // Width from biomarker SD
+      .attr('ry', errorSD2RadiusY)      // Height from error SD
+      .attr('transform', `rotate(${rotationDegrees}, ${centerX}, ${centerY})`)
+      .attr('fill', 'none')
+      .attr('stroke', '#9ca3af')
       .attr('stroke-width', 1.5)
-      .attr('stroke-dasharray', '5,3');
+      .attr('stroke-dasharray', '4,3')
+      .attr('opacity', 0.6);
+    
+    // Draw ±1 SD ellipse (inner, darker)
+    modelGroup.append('ellipse')
+      .attr('cx', centerX)
+      .attr('cy', centerY)
+      .attr('rx', biomarkerSD1RadiusX)  // Width from biomarker SD
+      .attr('ry', errorSD1RadiusY)      // Height from error SD
+      .attr('transform', `rotate(${rotationDegrees}, ${centerX}, ${centerY})`)
+      .attr('fill', 'none')
+      .attr('stroke', '#6b7280')
+      .attr('stroke-width', 1.5)
+      .attr('stroke-dasharray', '4,3')
+      .attr('opacity', 0.8);
+    
+    // Draw center point at means
+    modelGroup.append('circle')
+      .attr('cx', centerX)
+      .attr('cy', centerY)
+      .attr('r', 3)
+      .attr('fill', '#374151')
+      .attr('opacity', 0.7);
     
     // Generated data points
     if (syntheticData.length > 0) {
@@ -1329,27 +1341,6 @@ const BootstrapPowerAnalysis = () => {
                         </div>
                       </div>
                       
-                      {/* Slope Slider */}
-                      <div style={{ marginBottom: '16px' }}>
-                        <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
-                          Slope (<span style={{ fontWeight: '700', color: '#1f2937' }}>β</span>): <span style={{ fontWeight: '700', color: '#1f2937' }}>{modelSlope.toFixed(3)}</span>
-                        </label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px' }}>0</span>
-                          <input 
-                            type="range" 
-                            min="0" 
-                            max="0.5" 
-                            step="0.01"
-                            value={modelSlope}
-                            onChange={(e) => setModelSlope(parseFloat(e.target.value))}
-                            className="purple-track"
-                            style={{ width: '100%' }}
-                          />
-                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px', textAlign: 'right' }}>0.5</span>
-                        </div>
-                      </div>
-                      
                       {/* Error SD Slider */}
                       <div>
                         <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
@@ -1368,6 +1359,41 @@ const BootstrapPowerAnalysis = () => {
                             style={{ width: '100%' }}
                           />
                           <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px', textAlign: 'right' }}>20</span>
+                        </div>
+                      </div>
+                    </div>
+                  
+                    {/* Effect Size Box - below lifespan model */}
+                    <div style={{ 
+                      border: '2px solid #8b5cf6', 
+                      borderRadius: '8px', 
+                      background: 'white',
+                      padding: '12px',
+                      boxSizing: 'border-box',
+                      marginTop: '10px'
+                    }}>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#8b5cf6', marginBottom: '4px' }}>
+                        Effect Size
+                      </div>
+                      
+                      {/* Slope Slider */}
+                      <div>
+                        <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
+                          Slope (<span style={{ fontWeight: '700', color: '#1f2937' }}>β</span>): <span style={{ fontWeight: '700', color: '#1f2937' }}>{modelSlope.toFixed(3)}</span>
+                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px' }}>0</span>
+                          <input 
+                            type="range" 
+                            min="0" 
+                            max="0.5" 
+                            step="0.01"
+                            value={modelSlope}
+                            onChange={(e) => setModelSlope(parseFloat(e.target.value))}
+                            className="purple-track"
+                            style={{ width: '100%' }}
+                          />
+                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px', textAlign: 'right' }}>0.5</span>
                         </div>
                       </div>
                     </div>
