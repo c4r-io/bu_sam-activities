@@ -14,4 +14,5 @@
 
 ## Lesson 5
 [new variant 1](https://c4r-io.github.io/bu_sam-activities/model_1.html)
+
 [new variant 2](https://c4r-io.github.io/bu_sam-activities/model_2.html)
