@@ -224,12 +224,12 @@ const BootstrapPowerAnalysis = () => {
     
     // Dimensions
     const containerWidth = container.offsetWidth;
-    const svgWidth = containerWidth; // No padding adjustment needed
-    const svgHeight = 470; // Increased height
-    const margin = { top: 10, right: 10, bottom: 0, left: 50 }; // 50px left margin to accommodate label
+    const svgWidth = containerWidth;
+    const svgHeight = 400; // Match left column content: lifespan (300) + gap (10) + effect size (~90)
+    const margin = { top: 50, right: 10, bottom: 0, left: 50 }; // More top margin for Gaussian
     const modelHeight = 300;
     const gaussianHeight = 80;
-    const gap = 20; // Increased gap to prevent overlap with x-axis labels
+    const gap = 20; // Gap between Gaussian and model
     
     const width = svgWidth - margin.left - margin.right;
     
@@ -250,11 +250,97 @@ const BootstrapPowerAnalysis = () => {
       .domain([xMin, xMax])
       .range([margin.left, margin.left + width]);
     
+    // Position Gaussian at top with padding, then model below it
+    const gaussianTop = 10;
+    const modelTop = gaussianTop + gaussianHeight + gap; // Model starts below Gaussian
+    
     const yScale = window.d3.scaleLinear()
       .domain([yMin, yMax])
-      .range([margin.top + modelHeight, margin.top]);
+      .range([modelTop + modelHeight, modelTop]);
     
-    // === LINEAR MODEL PLOT ===
+    // === GAUSSIAN DISTRIBUTION === (Rendered first, appears at top)
+    const gaussianGroup = svg.append('g');
+    
+    // Calculate Gaussian points
+    const gaussianData = [];
+    let maxGaussianY = 0;
+    for (let i = 0; i <= 100; i++) {
+      const x = i;
+      const z = (x - biomarkerMean) / biomarkerSD;
+      const y = Math.exp(-0.5 * z * z) / (biomarkerSD * Math.sqrt(2 * Math.PI));
+      gaussianData.push({ x, y });
+      if (y > maxGaussianY) maxGaussianY = y;
+    }
+    
+    const gaussianYScale = window.d3.scaleLinear()
+      .domain([0, maxGaussianY])
+      .range([gaussianTop + gaussianHeight, gaussianTop]);
+    
+    // Gaussian baseline
+    gaussianGroup.append('line')
+      .attr('x1', margin.left)
+      .attr('y1', gaussianTop + gaussianHeight)
+      .attr('x2', margin.left + width)
+      .attr('y2', gaussianTop + gaussianHeight)
+      .attr('stroke', '#94a3b8')
+      .attr('stroke-width', 2);
+    
+    // Gaussian area
+    const areaGenerator = window.d3.area()
+      .x(d => xScale(d.x))
+      .y0(gaussianTop + gaussianHeight)
+      .y1(d => gaussianYScale(d.y));
+    
+    gaussianGroup.append('path')
+      .datum(gaussianData)
+      .attr('d', areaGenerator)
+      .attr('fill', '#bfdbfe')
+      .attr('opacity', 0.6);
+    
+    // Gaussian curve
+    const lineGenerator = window.d3.line()
+      .x(d => xScale(d.x))
+      .y(d => gaussianYScale(d.y));
+    
+    gaussianGroup.append('path')
+      .datum(gaussianData)
+      .attr('d', lineGenerator)
+      .attr('fill', 'none')
+      .attr('stroke', '#3b82f6')
+      .attr('stroke-width', 3);
+    
+    // ±1 SD lines for Gaussian
+    gaussianGroup.append('line')
+      .attr('x1', xScale(Math.max(0, biomarkerMean - biomarkerSD)))
+      .attr('y1', gaussianTop)
+      .attr('x2', xScale(Math.max(0, biomarkerMean - biomarkerSD)))
+      .attr('y2', gaussianTop + gaussianHeight)
+      .attr('stroke', '#60a5fa')
+      .attr('stroke-width', 1.5)
+      .attr('stroke-dasharray', '3,2')
+      .attr('opacity', 0.8);
+    
+    gaussianGroup.append('line')
+      .attr('x1', xScale(Math.min(100, biomarkerMean + biomarkerSD)))
+      .attr('y1', gaussianTop)
+      .attr('x2', xScale(Math.min(100, biomarkerMean + biomarkerSD)))
+      .attr('y2', gaussianTop + gaussianHeight)
+      .attr('stroke', '#60a5fa')
+      .attr('stroke-width', 1.5)
+      .attr('stroke-dasharray', '3,2')
+      .attr('opacity', 0.8);
+    
+    // X-axis label below Gaussian with italic b
+    gaussianGroup.append('text')
+      .attr('x', margin.left + width / 2)
+      .attr('y', gaussianTop + gaussianHeight + 15)
+      .attr('text-anchor', 'middle')
+      .attr('font-size', '14px')
+      .attr('font-weight', '600')
+      .attr('fill', '#0f172a')
+      .html('Biomarker (<tspan font-style="italic">b</tspan>)');
+    
+    // === LINEAR MODEL PLOT === (Rendered second, appears below)
     const modelGroup = svg.append('g');
     
     // Y-axis grid lines
@@ -283,9 +369,9 @@ const BootstrapPowerAnalysis = () => {
     xTicks.forEach(x => {
       modelGroup.append('line')
         .attr('x1', xScale(x))
-        .attr('y1', margin.top)
+        .attr('y1', modelTop)
         .attr('x2', xScale(x))
-        .attr('y2', margin.top + modelHeight)
+        .attr('y2', modelTop + modelHeight)
         .attr('stroke', '#f1f5f9')
         .attr('stroke-width', 1);
     });
@@ -293,17 +379,17 @@ const BootstrapPowerAnalysis = () => {
     // Axes
     modelGroup.append('line')
       .attr('x1', margin.left)
-      .attr('y1', margin.top)
+      .attr('y1', modelTop)
       .attr('x2', margin.left)
-      .attr('y2', margin.top + modelHeight)
+      .attr('y2', modelTop + modelHeight)
       .attr('stroke', '#94a3b8')
       .attr('stroke-width', 2);
     
     modelGroup.append('line')
       .attr('x1', margin.left)
-      .attr('y1', margin.top + modelHeight)
+      .attr('y1', modelTop + modelHeight)
       .attr('x2', margin.left + width)
-      .attr('y2', margin.top + modelHeight)
+      .attr('y2', modelTop + modelHeight)
       .attr('stroke', '#94a3b8')
       .attr('stroke-width', 2);
     
@@ -311,7 +397,7 @@ const BootstrapPowerAnalysis = () => {
     xTicks.forEach(x => {
       modelGroup.append('text')
         .attr('x', xScale(x))
-        .attr('y', margin.top + modelHeight + 15)
+        .attr('y', modelTop + modelHeight + 15)
         .attr('text-anchor', 'middle')
         .attr('font-size', '12px')
         .attr('fill', '#64748b')
@@ -334,7 +420,7 @@ const BootstrapPowerAnalysis = () => {
       .attr('id', 'plotClip')
       .append('rect')
       .attr('x', margin.left)
-      .attr('y', margin.top)
+      .attr('y', modelTop)
       .attr('width', width)
       .attr('height', modelHeight);
     
@@ -349,8 +435,6 @@ const BootstrapPowerAnalysis = () => {
       .attr('stroke-dasharray', '6,3');
     
     // Standard deviation ellipses showing where data points will fall
-    const gaussianTop = margin.top + modelHeight + gap;
-    
     // Calculate the center point where means intersect
     const centerX = xScale(biomarkerMean);
     const centerY = yScale(meanLifespan);
@@ -429,95 +513,14 @@ const BootstrapPowerAnalysis = () => {
     // Y-axis label with italic l (positioned in left margin, away from tick labels)
     modelGroup.append('text')
       .attr('x', 15) // Position closer to the tick labels in the 50px left margin
-      .attr('y', margin.top + modelHeight / 2)
+      .attr('y', modelTop + modelHeight / 2)
       .attr('text-anchor', 'middle')
       .attr('font-size', '14px')
       .attr('font-weight', '600')
       .attr('fill', '#0f172a')
-      .attr('transform', `rotate(-90, 15, ${margin.top + modelHeight / 2})`)
+      .attr('transform', `rotate(-90, 15, ${modelTop + modelHeight / 2})`)
       .html('Lifespan (<tspan style="font-style:italic">l</tspan>)');
     
-    // === GAUSSIAN DISTRIBUTION ===
-    const gaussianGroup = svg.append('g');
-    
-    // Calculate Gaussian points
-    const gaussianData = [];
-    let maxGaussianY = 0;
-    for (let i = 0; i <= 100; i++) {
-      const x = i;
-      const z = (x - biomarkerMean) / biomarkerSD;
-      const y = Math.exp(-0.5 * z * z) / (biomarkerSD * Math.sqrt(2 * Math.PI));
-      gaussianData.push({ x, y });
-      if (y > maxGaussianY) maxGaussianY = y;
-    }
-    
-    const gaussianYScale = window.d3.scaleLinear()
-      .domain([0, maxGaussianY])
-      .range([gaussianTop + gaussianHeight, gaussianTop]);
-    
-    // Gaussian baseline
-    gaussianGroup.append('line')
-      .attr('x1', margin.left)
-      .attr('y1', gaussianTop + gaussianHeight)
-      .attr('x2', margin.left + width)
-      .attr('y2', gaussianTop + gaussianHeight)
-      .attr('stroke', '#94a3b8')
-      .attr('stroke-width', 2);
-    
-    // Gaussian area
-    const areaGenerator = window.d3.area()
-      .x(d => xScale(d.x))
-      .y0(gaussianTop + gaussianHeight)
-      .y1(d => gaussianYScale(d.y));
-    
-    gaussianGroup.append('path')
-      .datum(gaussianData)
-      .attr('d', areaGenerator)
-      .attr('fill', '#bfdbfe')
-      .attr('opacity', 0.6);
-    
-    // Gaussian curve
-    const lineGenerator = window.d3.line()
-      .x(d => xScale(d.x))
-      .y(d => gaussianYScale(d.y));
-    
-    gaussianGroup.append('path')
-      .datum(gaussianData)
-      .attr('d', lineGenerator)
-      .attr('fill', 'none')
-      .attr('stroke', '#3b82f6')
-      .attr('stroke-width', 3);
-    
-    // ±1 SD lines for Gaussian
-    gaussianGroup.append('line')
-      .attr('x1', xScale(Math.max(0, biomarkerMean - biomarkerSD)))
-      .attr('y1', gaussianTop)
-      .attr('x2', xScale(Math.max(0, biomarkerMean - biomarkerSD)))
-      .attr('y2', gaussianTop + gaussianHeight)
-      .attr('stroke', '#60a5fa')
-      .attr('stroke-width', 1.5)
-      .attr('stroke-dasharray', '3,2')
-      .attr('opacity', 0.8);
-    
-    gaussianGroup.append('line')
-      .attr('x1', xScale(Math.min(100, biomarkerMean + biomarkerSD)))
-      .attr('y1', gaussianTop)
-      .attr('x2', xScale(Math.min(100, biomarkerMean + biomarkerSD)))
-      .attr('y2', gaussianTop + gaussianHeight)
-      .attr('stroke', '#60a5fa')
-      .attr('stroke-width', 1.5)
-      .attr('stroke-dasharray', '3,2')
-      .attr('opacity', 0.8);
-    
-    // X-axis label below Gaussian with italic b
-    gaussianGroup.append('text')
-      .attr('x', margin.left + width / 2)
-      .attr('y', gaussianTop + gaussianHeight + 35)
-      .attr('text-anchor', 'middle')
-      .attr('font-size', '14px')
-      .attr('font-weight', '600')
-      .attr('fill', '#0f172a')
-      .html('Biomarker (<tspan font-style="italic">b</tspan>)');
     
   }, [d3Loaded, step, biomarkerMean, biomarkerSD, modelSlope, meanLifespan, modelIntercept, errorSD, syntheticData]);
   
@@ -1253,11 +1256,121 @@ const BootstrapPowerAnalysis = () => {
                   </div>
                 </div>
                 
-                {/* LAYOUT: Lifespan controls on left, viz takes rest of space */}
-                <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: '0px' }}>
+                {/* ABOVE GRID: Biomarker Distribution Parameters */}
+                <div style={{ marginBottom: '10px', marginLeft: '260px', marginRight: '10px' }}> {/* 260px = 200px (left col) + 10px (viz marginLeft) + 50px (D3 left margin); 10px matches D3 right margin */}
                   
-                  {/* LEFT: Lifespan Model Parameters */}
-                  <div style={{ paddingTop: '10px' }}> {/* Match D3 top margin */}
+                  <div style={{ 
+                    border: '2px solid #3b82f6', 
+                    borderRadius: '8px', 
+                    background: 'white',
+                    padding: '16px'
+                  }}>
+                    
+                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#3b82f6', marginBottom: '4px' }}>
+                      Biomarker (<i>b</i>) Distribution
+                    </div>
+                    <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '12px', fontStyle: 'italic' }}>
+                      <i>b</i> ~ N(<span style={{ fontWeight: '700', color: '#1f2937' }}>μ<sub><i>b</i></sub></span>, <span style={{ fontWeight: '700', color: '#1f2937' }}>σ<sub><i>b</i></sub></span>)
+                    </div>
+                    
+                    <style>{`
+                      /* Biomarker sliders - blue */
+                      input[type="range"].blue-track {
+                        -webkit-appearance: none;
+                        appearance: none;
+                        height: 6px;
+                        background: #d1d5db;
+                        border-radius: 3px;
+                        outline: none;
+                      }
+                      input[type="range"].blue-track::-webkit-slider-thumb {
+                        -webkit-appearance: none;
+                        appearance: none;
+                        width: 16px;
+                        height: 16px;
+                        background: #3b82f6;
+                        cursor: pointer;
+                        border-radius: 50%;
+                      }
+                      input[type="range"].blue-track::-moz-range-thumb {
+                        width: 16px;
+                        height: 16px;
+                        background: #3b82f6;
+                        cursor: pointer;
+                        border-radius: 50%;
+                        border: none;
+                      }
+                      input[type="range"].blue-track::-moz-range-track {
+                        height: 6px;
+                        background: #d1d5db;
+                        border-radius: 3px;
+                      }
+                      input[type="range"].blue-track::-moz-range-progress {
+                        height: 6px;
+                        background: #3b82f6;
+                        border-radius: 3px;
+                      }
+                      input[type="range"].blue-track::-webkit-slider-runnable-track {
+                        height: 6px;
+                        background: linear-gradient(to right, #3b82f6 0%, #3b82f6 var(--value), #d1d5db var(--value), #d1d5db 100%);
+                        border-radius: 3px;
+                      }
+                    `}</style>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
+                          Mean (<span style={{ fontWeight: '700', color: '#1f2937' }}>μ<sub><i>b</i></sub></span>): <span style={{ fontWeight: '700', color: '#1f2937' }}>{biomarkerMean}</span>
+                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px' }}>30</span>
+                          <input 
+                            type="range" 
+                            min="30" 
+                            max="70" 
+                            step="1"
+                            value={biomarkerMean}
+                            onChange={(e) => setBiomarkerMean(parseFloat(e.target.value))}
+                            className="blue-track"
+                            style={{ width: '100%' }}
+                          />
+                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px', textAlign: 'right' }}>70</span>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
+                          Standard Deviation (<span style={{ fontWeight: '700', color: '#1f2937' }}>σ<sub><i>b</i></sub></span>): <span style={{ fontWeight: '700', color: '#1f2937' }}>{biomarkerSD}</span>
+                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px' }}>5</span>
+                          <input 
+                            type="range" 
+                            min="5" 
+                            max="25" 
+                            step="1"
+                            value={biomarkerSD}
+                            onChange={(e) => setBiomarkerSD(parseFloat(e.target.value))}
+                            className="blue-track"
+                            style={{ width: '100%' }}
+                          />
+                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px', textAlign: 'right' }}>25</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* LAYOUT: 3-row grid with controls on left, viz on right */}
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '200px 1fr', 
+                  gridTemplateRows: 'auto auto auto',
+                  gap: '0px' 
+                }}>
+                  
+                  {/* ROW 1 LEFT: Lifespan Model Parameters */}
+                  <div style={{ paddingTop: '110px' }}> {/* Match modelTop (110px) so box aligns with y-axis */}
                     {/* Linear Model Section */}
                     <div style={{ 
                       border: '2px solid #8b5cf6', 
@@ -1362,15 +1475,26 @@ const BootstrapPowerAnalysis = () => {
                         </div>
                       </div>
                     </div>
+                  </div>
                   
-                    {/* Effect Size Box - below lifespan model */}
+                  {/* ROW 1 RIGHT: Visualization */}
+                  <div>
+                    <div id="combined-viz-container" style={{ 
+                      background: 'white',
+                      marginLeft: '10px'
+                    }}>
+                      {/* D3 visualization will be rendered here */}
+                    </div>
+                  </div>
+                  
+                  {/* ROW 2 LEFT: Effect Size Panel */}
+                  <div style={{ marginTop: '10px' }}>
                     <div style={{ 
                       border: '2px solid #8b5cf6', 
                       borderRadius: '8px', 
                       background: 'white',
                       padding: '12px',
-                      boxSizing: 'border-box',
-                      marginTop: '10px'
+                      boxSizing: 'border-box'
                     }}>
                       <div style={{ fontSize: '13px', fontWeight: '600', color: '#8b5cf6', marginBottom: '4px' }}>
                         Effect Size
@@ -1399,155 +1523,36 @@ const BootstrapPowerAnalysis = () => {
                     </div>
                   </div>
                   
-                  {/* RIGHT: Visualization (expanded to full width) */}
-                  <div>
-                    <div id="combined-viz-container" style={{ 
-                      background: 'white',
-                      marginLeft: '10px'
-                    }}>
-                      {/* D3 visualization will be rendered here */}
-                    </div>
-                  </div>
-                </div>
-                
-                {/* BELOW GRID: Biomarker Distribution Parameters */}
-                <div style={{ paddingTop: '0px', marginLeft: '260px', marginRight: '10px' }}> {/* paddingTop: 0px; 260px = 200px (left col) + 10px (viz marginLeft) + 50px (D3 left margin); 10px matches D3 right margin */}
-                  
+                  {/* ROW 2 RIGHT: Action Buttons */}
                   <div style={{ 
-                    border: '2px solid #3b82f6', 
-                    borderRadius: '8px', 
-                    background: 'white',
-                    padding: '16px'
+                    marginTop: '10px', 
+                    marginLeft: '10px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}>
-                    
-                    <div style={{ fontSize: '14px', fontWeight: '600', color: '#3b82f6', marginBottom: '4px' }}>
-                      Biomarker (<i>b</i>) Distribution
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '12px', fontStyle: 'italic' }}>
-                      <i>b</i> ~ N(<span style={{ fontWeight: '700', color: '#1f2937' }}>μ<sub><i>b</i></sub></span>, <span style={{ fontWeight: '700', color: '#1f2937' }}>σ<sub><i>b</i></sub></span>)
-                    </div>
-                    
-                    <style>{`
-                      /* Biomarker sliders - blue */
-                      input[type="range"].blue-track {
-                        -webkit-appearance: none;
-                        appearance: none;
-                        height: 6px;
-                        background: #d1d5db;
-                        border-radius: 3px;
-                        outline: none;
-                      }
-                      input[type="range"].blue-track::-webkit-slider-thumb {
-                        -webkit-appearance: none;
-                        appearance: none;
-                        width: 16px;
-                        height: 16px;
-                        background: #3b82f6;
-                        cursor: pointer;
-                        border-radius: 50%;
-                      }
-                      input[type="range"].blue-track::-moz-range-thumb {
-                        width: 16px;
-                        height: 16px;
-                        background: #3b82f6;
-                        cursor: pointer;
-                        border-radius: 50%;
-                        border: none;
-                      }
-                      input[type="range"].blue-track::-moz-range-track {
-                        height: 6px;
-                        background: #d1d5db;
-                        border-radius: 3px;
-                      }
-                      input[type="range"].blue-track::-moz-range-progress {
-                        height: 6px;
-                        background: #3b82f6;
-                        border-radius: 3px;
-                      }
-                      input[type="range"].blue-track::-webkit-slider-runnable-track {
-                        height: 6px;
-                        background: linear-gradient(to right, #3b82f6 0%, #3b82f6 var(--value), #d1d5db var(--value), #d1d5db 100%);
-                        border-radius: 3px;
-                      }
-                    `}</style>
-                    
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                      <div>
-                        <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
-                          Mean (<span style={{ fontWeight: '700', color: '#1f2937' }}>μ<sub><i>b</i></sub></span>): <span style={{ fontWeight: '700', color: '#1f2937' }}>{biomarkerMean}</span>
-                        </label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px' }}>30</span>
-                          <input 
-                            type="range" 
-                            min="30" 
-                            max="70" 
-                            step="1"
-                            value={biomarkerMean}
-                            onChange={(e) => setBiomarkerMean(parseFloat(e.target.value))}
-                            className="blue-track"
-                            style={{ width: '100%' }}
-                          />
-                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px', textAlign: 'right' }}>70</span>
-                        </div>
+                    {/* Alert when parameters changed */}
+                    {parametersChanged && (
+                      <div style={{ 
+                        marginBottom: '12px',
+                        padding: '12px',
+                        background: '#fef3c7',
+                        border: '2px solid #f59e0b',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        color: '#92400e',
+                        fontWeight: '600'
+                      }}>
+                        ⚠️ Parameters changed. Click "Generate Synthetic Data" to update.
                       </div>
-                      
-                      <div>
-                        <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
-                          Standard Deviation (<span style={{ fontWeight: '700', color: '#1f2937' }}>σ<sub><i>b</i></sub></span>): <span style={{ fontWeight: '700', color: '#1f2937' }}>{biomarkerSD}</span>
-                        </label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px' }}>5</span>
-                          <input 
-                            type="range" 
-                            min="5" 
-                            max="25" 
-                            step="1"
-                            value={biomarkerSD}
-                            onChange={(e) => setBiomarkerSD(parseFloat(e.target.value))}
-                            className="blue-track"
-                            style={{ width: '100%' }}
-                          />
-                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px', textAlign: 'right' }}>25</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Action Buttons - OUTSIDE the biomarker box */}
-                  {/* Alert when parameters changed */}
-                  {parametersChanged && (
-                    <div style={{ 
-                      background: '#fef3c7',
-                      border: '2px solid #f59e0b',
-                      borderRadius: '8px',
-                      padding: '12px 16px',
-                      marginTop: '16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px'
-                    }}>
-                      <span style={{ fontSize: '18px' }}>⚠️</span>
-                      <span style={{ fontSize: '13px', color: '#92400e', fontWeight: '600' }}>
-                        Parameters changed. Click "Generate Synthetic Data" to update.
-                      </span>
-                    </div>
-                  )}
-                  
-                  <div style={{ display: 'flex', gap: '12px', marginTop: '16px', justifyContent: 'center' }}>
+                    )}
+                    
+                    {/* Action Buttons */}
+                    <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
                     <button
                       onClick={generateSyntheticData}
                       className="action-button btn-primary"
-                      style={{ 
-                        padding: '12px 24px',
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        background: '#667eea',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        cursor: 'pointer'
-                      }}
                     >
                       Generate Synthetic Data
                     </button>
@@ -1556,33 +1561,16 @@ const BootstrapPowerAnalysis = () => {
                       onClick={calculateSyntheticStats}
                       disabled={syntheticData.length === 0}
                       className="action-button btn-primary"
-                      style={{ 
-                        padding: '12px 24px',
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        background: syntheticData.length === 0 ? '#cbd5e1' : '#10b981',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        cursor: syntheticData.length === 0 ? 'not-allowed' : 'pointer',
-                        opacity: syntheticData.length === 0 ? 0.5 : 1
-                      }}
                     >
                       Calculate Statistics
                     </button>
                   </div>
                   
-                  {/* Stats Display */}
-                  {syntheticCorrelation !== null && (
-                    <div style={{ 
-                      border: '2px solid #10b981', 
-                      borderRadius: '8px', 
-                      background: '#f0fdf4',
-                      padding: '16px',
-                      marginTop: '16px'
-                    }}>
-                      <div style={{ fontSize: '14px', fontWeight: '600', color: '#059669', marginBottom: '12px' }}>
-                        Statistics (<i>n</i> = 20)
+                  {/* Statistics Display - in same cell below buttons */}
+                  {syntheticCorrelation !== null && syntheticPValue !== null && (
+                    <div style={{ marginTop: '12px', padding: '12px', background: '#f8fafc', border: '2px solid #e2e8f0', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#0f172a', marginBottom: '6px' }}>
+                        Synthetic Data Statistics (n = 20)
                       </div>
                       <div style={{ fontSize: '13px', color: '#0f172a' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
@@ -1596,6 +1584,7 @@ const BootstrapPowerAnalysis = () => {
                       </div>
                     </div>
                   )}
+                  </div>
                 </div>
               </div>
             )}
