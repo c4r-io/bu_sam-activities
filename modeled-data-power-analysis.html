@@ -226,10 +226,10 @@ const BootstrapPowerAnalysis = () => {
     const containerWidth = container.offsetWidth;
     const svgWidth = containerWidth;
     const svgHeight = 400; // Match left column content: lifespan (300) + gap (10) + effect size (~90)
-    const margin = { top: 50, right: 10, bottom: 0, left: 50 }; // More top margin for Gaussian
+    const margin = { top: 50, right: 10, bottom: 0, left: 45 }; // Increased to prevent label cutoff
     const modelHeight = 300;
-    const gaussianHeight = 80;
-    const gap = 20; // Gap between Gaussian and model
+    const gaussianHeight = 65; // Increased from 60px
+    const gap = 50; // Gap between Gaussian and model - increased for more space
     
     const width = svgWidth - margin.left - margin.right;
     
@@ -309,31 +309,42 @@ const BootstrapPowerAnalysis = () => {
       .attr('stroke', '#3b82f6')
       .attr('stroke-width', 3);
     
-    // ±1 SD lines for Gaussian
+    // Mean line for Gaussian - thick dashed
+    gaussianGroup.append('line')
+      .attr('x1', xScale(biomarkerMean))
+      .attr('y1', gaussianTop)
+      .attr('x2', xScale(biomarkerMean))
+      .attr('y2', gaussianTop + gaussianHeight)
+      .attr('stroke', '#3b82f6')
+      .attr('stroke-width', 2.5)
+      .attr('stroke-dasharray', '6,3');
+    
+    // -1 SD line for Gaussian - thin dashed
     gaussianGroup.append('line')
       .attr('x1', xScale(Math.max(0, biomarkerMean - biomarkerSD)))
       .attr('y1', gaussianTop)
       .attr('x2', xScale(Math.max(0, biomarkerMean - biomarkerSD)))
       .attr('y2', gaussianTop + gaussianHeight)
-      .attr('stroke', '#60a5fa')
-      .attr('stroke-width', 1.5)
+      .attr('stroke', '#3b82f6')
+      .attr('stroke-width', 1)
       .attr('stroke-dasharray', '3,2')
-      .attr('opacity', 0.8);
+      .attr('opacity', 0.6);
     
+    // +1 SD line for Gaussian - thin dashed
     gaussianGroup.append('line')
       .attr('x1', xScale(Math.min(100, biomarkerMean + biomarkerSD)))
       .attr('y1', gaussianTop)
       .attr('x2', xScale(Math.min(100, biomarkerMean + biomarkerSD)))
       .attr('y2', gaussianTop + gaussianHeight)
-      .attr('stroke', '#60a5fa')
-      .attr('stroke-width', 1.5)
+      .attr('stroke', '#3b82f6')
+      .attr('stroke-width', 1)
       .attr('stroke-dasharray', '3,2')
-      .attr('opacity', 0.8);
+      .attr('opacity', 0.6);
     
-    // X-axis label below Gaussian with italic b
+    // Biomarker label below Gaussian, above linear model
     gaussianGroup.append('text')
       .attr('x', margin.left + width / 2)
-      .attr('y', gaussianTop + gaussianHeight + 15)
+      .attr('y', gaussianTop + gaussianHeight + 25)
       .attr('text-anchor', 'middle')
       .attr('font-size', '14px')
       .attr('font-weight', '600')
@@ -385,6 +396,7 @@ const BootstrapPowerAnalysis = () => {
       .attr('stroke', '#94a3b8')
       .attr('stroke-width', 2);
     
+    // X-axis at bottom
     modelGroup.append('line')
       .attr('x1', margin.left)
       .attr('y1', modelTop + modelHeight)
@@ -392,6 +404,26 @@ const BootstrapPowerAnalysis = () => {
       .attr('y2', modelTop + modelHeight)
       .attr('stroke', '#94a3b8')
       .attr('stroke-width', 2);
+    
+    // X-axis at top
+    modelGroup.append('line')
+      .attr('x1', margin.left)
+      .attr('y1', modelTop)
+      .attr('x2', margin.left + width)
+      .attr('y2', modelTop)
+      .attr('stroke', '#94a3b8')
+      .attr('stroke-width', 2);
+    
+    // X-axis tick labels at top
+    xTicks.forEach(x => {
+      modelGroup.append('text')
+        .attr('x', xScale(x))
+        .attr('y', modelTop - 5)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', '12px')
+        .attr('fill', '#64748b')
+        .text(x);
+    });
     
     // X-axis tick labels (right below linear model x-axis)
     xTicks.forEach(x => {
@@ -469,7 +501,7 @@ const BootstrapPowerAnalysis = () => {
       .attr('ry', errorSD2RadiusY)      // Height from error SD
       .attr('transform', `rotate(${rotationDegrees}, ${centerX}, ${centerY})`)
       .attr('fill', 'none')
-      .attr('stroke', '#9ca3af')
+      .attr('stroke', '#c4b5fd')
       .attr('stroke-width', 1.5)
       .attr('stroke-dasharray', '4,3')
       .attr('opacity', 0.6);
@@ -482,7 +514,7 @@ const BootstrapPowerAnalysis = () => {
       .attr('ry', errorSD1RadiusY)      // Height from error SD
       .attr('transform', `rotate(${rotationDegrees}, ${centerX}, ${centerY})`)
       .attr('fill', 'none')
-      .attr('stroke', '#6b7280')
+      .attr('stroke', '#8b5cf6')
       .attr('stroke-width', 1.5)
       .attr('stroke-dasharray', '4,3')
       .attr('opacity', 0.8);
@@ -512,13 +544,13 @@ const BootstrapPowerAnalysis = () => {
     
     // Y-axis label with italic l (positioned in left margin, away from tick labels)
     modelGroup.append('text')
-      .attr('x', 15) // Position closer to the tick labels in the 50px left margin
+      .attr('x', 10) // Position with space from left edge
       .attr('y', modelTop + modelHeight / 2)
       .attr('text-anchor', 'middle')
       .attr('font-size', '14px')
       .attr('font-weight', '600')
       .attr('fill', '#0f172a')
-      .attr('transform', `rotate(-90, 15, ${modelTop + modelHeight / 2})`)
+      .attr('transform', `rotate(-90, 10, ${modelTop + modelHeight / 2})`)
       .html('Lifespan (<tspan style="font-style:italic">l</tspan>)');
     
     
@@ -1361,11 +1393,11 @@ const BootstrapPowerAnalysis = () => {
                   </div>
                 </div>
                 
-                {/* LAYOUT: 3-row grid with controls on left, viz on right */}
+                {/* LAYOUT: 3-column, 2-row grid */}
                 <div style={{ 
                   display: 'grid', 
-                  gridTemplateColumns: '200px 1fr', 
-                  gridTemplateRows: 'auto auto auto',
+                  gridTemplateColumns: '200px 80px 1fr', 
+                  gridTemplateRows: 'auto auto',
                   gap: '0px' 
                 }}>
                   
@@ -1373,7 +1405,7 @@ const BootstrapPowerAnalysis = () => {
                   <div style={{ paddingTop: '110px' }}> {/* Match modelTop (110px) so box aligns with y-axis */}
                     {/* Linear Model Section */}
                     <div style={{ 
-                      border: '2px solid #8b5cf6', 
+                      border: '2px solid #f97316', 
                       borderRadius: '8px', 
                       background: 'white',
                       padding: '12px',
@@ -1382,7 +1414,7 @@ const BootstrapPowerAnalysis = () => {
                       flexDirection: 'column',
                       boxSizing: 'border-box'
                     }}>
-                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#8b5cf6', marginBottom: '4px' }}>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#f97316', marginBottom: '4px' }}>
                         Lifespan (<i>l</i>) Model
                       </div>
                       <div style={{ fontSize: '11px', color: '#64748b', marginBottom: '12px', fontStyle: 'italic' }}>
@@ -1390,7 +1422,201 @@ const BootstrapPowerAnalysis = () => {
                       </div>
                       
                       <style>{`
-                        /* Lifespan sliders - purple */
+                        /* Lifespan sliders - orange */
+                        input[type="range"].orange-track {
+                          -webkit-appearance: none;
+                          appearance: none;
+                          height: 6px;
+                          background: #d1d5db;
+                          border-radius: 3px;
+                          outline: none;
+                        }
+                        input[type="range"].orange-track::-webkit-slider-thumb {
+                          -webkit-appearance: none;
+                          appearance: none;
+                          width: 16px;
+                          height: 16px;
+                          background: #f97316;
+                          cursor: pointer;
+                          border-radius: 50%;
+                        }
+                        input[type="range"].orange-track::-moz-range-thumb {
+                          width: 16px;
+                          height: 16px;
+                          background: #f97316;
+                          cursor: pointer;
+                          border-radius: 50%;
+                          border: none;
+                        }
+                        input[type="range"].orange-track::-moz-range-track {
+                          height: 6px;
+                          background: #d1d5db;
+                          border-radius: 3px;
+                        }
+                        input[type="range"].orange-track::-moz-range-progress {
+                          height: 6px;
+                          background: #f97316;
+                          border-radius: 3px;
+                        }
+                        input[type="range"].orange-track::-webkit-slider-runnable-track {
+                          height: 6px;
+                          background: linear-gradient(to right, #f97316 0%, #f97316 var(--value), #d1d5db var(--value), #d1d5db 100%);
+                          border-radius: 3px;
+                        }
+                      `}</style>
+                      
+                      {/* Mean Lifespan Slider */}
+                      <div style={{ marginBottom: '16px' }}>
+                        <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
+                          Mean Lifespan (<span style={{ fontWeight: '700', color: '#1f2937' }}>μ<sub><i>l</i></sub></span>): <span style={{ fontWeight: '700', color: '#1f2937' }}>{meanLifespan.toFixed(1)}</span>
+                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px' }}>50</span>
+                          <input 
+                            type="range" 
+                            min="50" 
+                            max="100" 
+                            step="0.5"
+                            value={meanLifespan}
+                            onChange={(e) => setMeanLifespan(parseFloat(e.target.value))}
+                            className="orange-track"
+                            style={{ width: '100%' }}
+                          />
+                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px', textAlign: 'right' }}>100</span>
+                        </div>
+                      </div>
+                      
+                      {/* Error SD Slider */}
+                      <div>
+                        <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
+                          Error SD (<span style={{ fontWeight: '700', color: '#1f2937' }}>σ<sub>ε</sub></span>): <span style={{ fontWeight: '700', color: '#1f2937' }}>{errorSD.toFixed(1)}</span>
+                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px' }}>1</span>
+                          <input 
+                            type="range" 
+                            min="1" 
+                            max="20" 
+                            step="0.5"
+                            value={errorSD}
+                            onChange={(e) => setErrorSD(parseFloat(e.target.value))}
+                            className="orange-track"
+                            style={{ width: '100%' }}
+                          />
+                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px', textAlign: 'right' }}>20</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* ROW 1 MIDDLE: Vertical Gaussian for Lifespan */}
+                  <div style={{ paddingTop: '110px' }}> {/* Align with modelTop */}
+                    <svg width="80" height="300" style={{ background: 'white', transform: 'scaleX(-1)', display: 'block' }}>
+                      {/* Vertical Gaussian curve - flipped horizontally */}
+                      {(() => {
+                        const height = 300;
+                        const width = 80;
+                        const mean = meanLifespan;
+                        const sd = errorSD;
+                        const yMin = 30, yMax = 120;
+                        
+                        // Create path for Gaussian
+                        const points = [];
+                        for (let i = 0; i <= 100; i++) {
+                          const y = yMin + (yMax - yMin) * (i / 100);
+                          const z = (y - mean) / sd;
+                          const density = Math.exp(-0.5 * z * z) / (sd * Math.sqrt(2 * Math.PI));
+                          const x = (density / (1 / (sd * Math.sqrt(2 * Math.PI)))) * (width - 20) + 10;
+                          const yPos = height - (i / 100) * height;
+                          points.push(`${x},${yPos}`);
+                        }
+                        
+                        return (
+                          <>
+                            {/* Gaussian filled area */}
+                            <path
+                              d={`M 10,0 L ${points.join(' L ')} L 10,${height} Z`}
+                              fill="#fed7aa"
+                              opacity="0.6"
+                            />
+                            {/* Gaussian curve */}
+                            <path
+                              d={`M ${points.join(' L ')}`}
+                              fill="none"
+                              stroke="#f97316"
+                              strokeWidth="2"
+                            />
+                            {/* Baseline */}
+                            <line
+                              x1="10"
+                              y1="0"
+                              x2="10"
+                              y2={height}
+                              stroke="#94a3b8"
+                              strokeWidth="1.5"
+                            />
+                            {/* Mean line - thick dashed */}
+                            <line
+                              x1="10"
+                              y1={height - ((mean - yMin) / (yMax - yMin)) * height}
+                              x2={width - 10}
+                              y2={height - ((mean - yMin) / (yMax - yMin)) * height}
+                              stroke="#f97316"
+                              strokeWidth="2.5"
+                              strokeDasharray="6,3"
+                            />
+                            {/* +1 SD line - thin dashed */}
+                            <line
+                              x1="10"
+                              y1={height - ((mean + sd - yMin) / (yMax - yMin)) * height}
+                              x2={width - 10}
+                              y2={height - ((mean + sd - yMin) / (yMax - yMin)) * height}
+                              stroke="#f97316"
+                              strokeWidth="1"
+                              strokeDasharray="3,2"
+                              opacity="0.6"
+                            />
+                            {/* -1 SD line - thin dashed */}
+                            <line
+                              x1="10"
+                              y1={height - ((mean - sd - yMin) / (yMax - yMin)) * height}
+                              x2={width - 10}
+                              y2={height - ((mean - sd - yMin) / (yMax - yMin)) * height}
+                              stroke="#f97316"
+                              strokeWidth="1"
+                              strokeDasharray="3,2"
+                              opacity="0.6"
+                            />
+                          </>
+                        );
+                      })()}
+                    </svg>
+                  </div>
+                  
+                  {/* ROW 1 RIGHT: Visualization */}
+                  <div>
+                    <div id="combined-viz-container" style={{ 
+                      background: 'white'
+                    }}>
+                      {/* D3 visualization will be rendered here */}
+                    </div>
+                  </div>
+                  
+                  {/* ROW 2 LEFT: Effect Size Panel */}
+                  <div style={{ marginTop: '10px' }}>
+                    <div style={{ 
+                      border: '2px solid #8b5cf6', 
+                      borderRadius: '8px', 
+                      background: 'white',
+                      padding: '12px',
+                      boxSizing: 'border-box'
+                    }}>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#8b5cf6', marginBottom: '4px' }}>
+                        Effect Size
+                      </div>
+                      
+                      <style>{`
+                        /* Effect size slider - purple */
                         input[type="range"].purple-track {
                           -webkit-appearance: none;
                           appearance: none;
@@ -1433,73 +1659,6 @@ const BootstrapPowerAnalysis = () => {
                         }
                       `}</style>
                       
-                      {/* Mean Lifespan Slider */}
-                      <div style={{ marginBottom: '16px' }}>
-                        <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
-                          Mean Lifespan (<span style={{ fontWeight: '700', color: '#1f2937' }}>μ<sub><i>l</i></sub></span>): <span style={{ fontWeight: '700', color: '#1f2937' }}>{meanLifespan.toFixed(1)}</span>
-                        </label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px' }}>50</span>
-                          <input 
-                            type="range" 
-                            min="50" 
-                            max="100" 
-                            step="0.5"
-                            value={meanLifespan}
-                            onChange={(e) => setMeanLifespan(parseFloat(e.target.value))}
-                            className="purple-track"
-                            style={{ width: '100%' }}
-                          />
-                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px', textAlign: 'right' }}>100</span>
-                        </div>
-                      </div>
-                      
-                      {/* Error SD Slider */}
-                      <div>
-                        <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
-                          Error SD (<span style={{ fontWeight: '700', color: '#1f2937' }}>σ<sub>ε</sub></span>): <span style={{ fontWeight: '700', color: '#1f2937' }}>{errorSD.toFixed(1)}</span>
-                        </label>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px' }}>1</span>
-                          <input 
-                            type="range" 
-                            min="1" 
-                            max="20" 
-                            step="0.5"
-                            value={errorSD}
-                            onChange={(e) => setErrorSD(parseFloat(e.target.value))}
-                            className="purple-track"
-                            style={{ width: '100%' }}
-                          />
-                          <span style={{ fontSize: '13px', color: '#1f2937', fontWeight: '600', minWidth: '25px', textAlign: 'right' }}>20</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* ROW 1 RIGHT: Visualization */}
-                  <div>
-                    <div id="combined-viz-container" style={{ 
-                      background: 'white',
-                      marginLeft: '10px'
-                    }}>
-                      {/* D3 visualization will be rendered here */}
-                    </div>
-                  </div>
-                  
-                  {/* ROW 2 LEFT: Effect Size Panel */}
-                  <div style={{ marginTop: '10px' }}>
-                    <div style={{ 
-                      border: '2px solid #8b5cf6', 
-                      borderRadius: '8px', 
-                      background: 'white',
-                      padding: '12px',
-                      boxSizing: 'border-box'
-                    }}>
-                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#8b5cf6', marginBottom: '4px' }}>
-                        Effect Size
-                      </div>
-                      
                       {/* Slope Slider */}
                       <div>
                         <label style={{ display: 'block', fontSize: '13px', color: '#64748b', marginBottom: '6px' }}>
@@ -1522,6 +1681,9 @@ const BootstrapPowerAnalysis = () => {
                       </div>
                     </div>
                   </div>
+                  
+                  {/* ROW 2 MIDDLE: Empty */}
+                  <div></div>
                   
                   {/* ROW 2 RIGHT: Action Buttons */}
                   <div style={{ 
