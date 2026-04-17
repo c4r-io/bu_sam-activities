@@ -8,11 +8,11 @@ target_rho <- cor(pilot$biomarker, pilot$lifespan)
 # target correlation for bu-sam-01 activity
 target_rho <- 0.1
 
-
 idx <- seq_len(NROW(orig))
 
 best_r <- 1
 
+set.seed(42)
 num_runs <- 10000
 for(i in 1:num_runs)
 {
@@ -140,6 +140,23 @@ plot_height <- 4 # inches
 
 ggsave(
   "plot_lifespan_biomarker_n-20_r-0.1_line.png",
+  p,
+  width = plot_width,
+  height = plot_height,
+  units = "in",
+  dpi = plot_dpi
+)
+
+df_100 <- orig[1:100,]
+names(df_100) <- c("Biomarker", "Lifespan")
+make_lifespan_biomarker_panel(df_100)
+
+p <- make_lifespan_biomarker_panel(df_100, dpi = plot_dpi)
+plot_width <- 5 # inches
+plot_height <- 4 # inches
+
+ggsave(
+  "plot_lifespan_biomarker_n-100.png",
   p,
   width = plot_width,
   height = plot_height,
