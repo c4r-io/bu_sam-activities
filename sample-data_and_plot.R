@@ -114,7 +114,7 @@ make_lifespan_biomarker_panel <- function(df, dpi = view_dpi,
   
   if (include_regression)
   {
-    out <- out + geom_smooth(method = "lm", color = "black", se = FALSE, 
+    out <- out + geom_smooth(method = "lm", color = "black", se = TRUE, 
                              fullrange = TRUE)
   }
   out
@@ -135,8 +135,6 @@ ggsave(
 )
 
 p <- make_lifespan_biomarker_panel(best_d, dpi = plot_dpi, include_regression = TRUE)
-plot_width <- 5 # inches
-plot_height <- 4 # inches
 
 ggsave(
   "plot_lifespan_biomarker_n-20_r-0.1_line.png",
@@ -152,8 +150,6 @@ names(df_100) <- c("Biomarker", "Lifespan")
 make_lifespan_biomarker_panel(df_100)
 
 p <- make_lifespan_biomarker_panel(df_100, dpi = plot_dpi)
-plot_width <- 5 # inches
-plot_height <- 4 # inches
 
 ggsave(
   "plot_lifespan_biomarker_n-100.png",
@@ -163,3 +159,17 @@ ggsave(
   units = "in",
   dpi = plot_dpi
 )
+
+p <- make_lifespan_biomarker_panel(df_100, dpi = plot_dpi, include_regression = TRUE)
+plot_width <- 5 # inches
+plot_height <- 4 # inches
+
+ggsave(
+  "plot_lifespan_biomarker_n-100_line.png",
+  p,
+  width = plot_width,
+  height = plot_height,
+  units = "in",
+  dpi = plot_dpi
+)
+
