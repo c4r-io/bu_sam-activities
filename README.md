@@ -14,3 +14,6 @@
 
 ## Lesson 5
 [Modeled Data Power Analysis](https://c4r-io.github.io/bu_sam-activities/modeled-data-power-analysis.html)
+
+## Lesson 7
+[Sample Size Resource Evaluation](https://c4r-io.github.io/bu_sam-activities/sample-size-resource-activity)
