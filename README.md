@@ -1,7 +1,7 @@
 # BU Sample Size Activity Prototypes
 
 ## Lesson 1
-
+[Analyze the Data](https://c4r-io.github.io/bu_sam-activities/bu_sam_01_analyzethedata.html)
 
 ## Lesson 2
 [Statistical Power Visualization](https://c4r-io.github.io/bu_sam-activities/stats-power-html)
