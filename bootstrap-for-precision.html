@@ -1,0 +1,2508 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bootstrap Precision Analysis</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #F3F3F3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    #root { min-height: 100vh; }
+    /* Simple loading state shown before React mounts. */
+    #root:empty::before {
+      content: 'Loading activity\2026';
+      display: block;
+      padding: 40px;
+      text-align: center;
+      font-size: 14px;
+      color: #999;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React 18 production builds (pinned for reproducibility). -->
+  <script
+    crossorigin
+    src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
+  ></script>
+  <script
+    crossorigin
+    src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
+  ></script>
+
+  <!-- Activity code (pre-transpiled by esbuild). -->
+  <script>
+const {
+  useState,
+  useReducer,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback
+} = React;
+const COLORS = {
+  purple: "#6F00FF",
+  darkPurple: "#5700CA",
+  purpleFade: "rgba(111, 0, 255, 0.3)",
+  yellow: "#FFC800",
+  yellowFade: "rgba(255, 200, 0, 0.25)",
+  blue: "#0082FF",
+  green: "#0CC800",
+  orange: "#FF7A00",
+  black: "#202020",
+  darkGray: "#333132",
+  midGray: "#999999",
+  intLightGray: "#E0E0E0",
+  lightGray: "#F3F3F3",
+  white: "#FFFFFF"
+};
+const FONT_STACK = "'General Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+const MONO_STACK = "'JetBrains Mono', monospace";
+const TEXT = {
+  sectionTitle: { fontSize: "14px", fontWeight: 700, textAlign: "center", color: COLORS.black },
+  body: { fontSize: "14px", fontWeight: 500, color: COLORS.darkGray, lineHeight: 1.5 },
+  compact: { fontSize: "12px", fontWeight: 500, color: COLORS.darkGray, lineHeight: 1.45 },
+  caption: { fontSize: "12px", fontWeight: 500, color: COLORS.midGray },
+  button: { fontSize: "0.8rem", fontWeight: 600 },
+  cardTitle: { fontSize: "1.2rem", fontWeight: 700, color: COLORS.black, marginBottom: 8 }
+};
+const GLOBAL_CSS = `
+@keyframes rowFadeIn {
+  0%   { background-color: ${COLORS.purpleFade}; }
+  100% { background-color: ${COLORS.white}; }
+}
+@keyframes slideIn {
+  0%   { opacity: 0; transform: translateY(-20px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes precisionReveal {
+  0%   { transform: scale(1.05); background-color: ${COLORS.purpleFade}; }
+  100% { transform: scale(1); background-color: ${COLORS.white}; }
+}
+@keyframes forestBarIn {
+  0%   { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes forestCIExtend {
+  0%   { transform: scaleY(0); opacity: 0.6; }
+  100% { transform: scaleY(1); opacity: 1; }
+}
+.row-fade-in { animation: rowFadeIn 1s ease-out; }
+.slide-in    { animation: slideIn 0.4s ease-out; }
+.precision-reveal { animation: precisionReveal 0.5s ease-out; }
+.forest-bar-in { animation: forestBarIn 200ms ease-out; transform-box: fill-box; transform-origin: center; }
+.forest-ci-extend { animation: forestCIExtend 350ms ease-out; }
+
+.bu-sam-03 * { box-sizing: border-box; }
+.bu-sam-03 { font-family: ${FONT_STACK}; color: ${COLORS.black}; }
+.bu-sam-03 button { font-family: ${FONT_STACK}; }
+
+.bu-sam-03 .table-scroll::-webkit-scrollbar { width: 8px; }
+.bu-sam-03 .table-scroll::-webkit-scrollbar-thumb { background: ${COLORS.intLightGray}; border-radius: 4px; }
+`;
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+function lgamma(x) {
+  const g = 7;
+  const c = [
+    0.9999999999998099,
+    676.5203681218851,
+    -1259.1392167224028,
+    771.3234287776531,
+    -176.6150291621406,
+    12.507343278686905,
+    -0.13857109526572012,
+    9984369578019572e-21,
+    15056327351493116e-23
+  ];
+  if (x < 0.5) {
+    return Math.log(Math.PI / Math.sin(Math.PI * x)) - lgamma(1 - x);
+  }
+  x -= 1;
+  let a = c[0];
+  const t = x + g + 0.5;
+  for (let i = 1; i < c.length; i++) a += c[i] / (x + i);
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+}
+function betaincReg(x, a, b) {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const bt = Math.exp(
+    lgamma(a + b) - lgamma(a) - lgamma(b) + a * Math.log(x) + b * Math.log(1 - x)
+  );
+  if (x < (a + 1) / (a + b + 2)) {
+    return bt * betacf(x, a, b) / a;
+  }
+  return 1 - bt * betacf(1 - x, b, a) / b;
+}
+function betacf(x, a, b) {
+  const MAXIT = 200;
+  const EPS = 3e-7;
+  const FPMIN = 1e-30;
+  const qab = a + b;
+  const qap = a + 1;
+  const qam = a - 1;
+  let c = 1;
+  let d = 1 - qab * x / qap;
+  if (Math.abs(d) < FPMIN) d = FPMIN;
+  d = 1 / d;
+  let h = d;
+  for (let m = 1; m <= MAXIT; m++) {
+    const m2 = 2 * m;
+    let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+    d = 1 + aa * d;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c;
+    if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    h *= d * c;
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+    d = 1 + aa * d;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c;
+    if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < EPS) break;
+  }
+  return h;
+}
+function tCDF(t, df) {
+  if (df <= 0) return 0.5;
+  if (t === 0) return 0.5;
+  const x = df / (df + t * t);
+  const tail = 0.5 * betaincReg(x, df / 2, 0.5);
+  return t > 0 ? 1 - tail : tail;
+}
+function tInv(p, df) {
+  if (p === 0.5) return 0;
+  let lo = -50, hi = 50;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (tCDF(mid, df) < p) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+function median(arr) {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+const PRECISION_TARGET = 1;
+function slopeStats(xs, ys) {
+  const n = xs.length;
+  if (n < 3) {
+    return { n, slope: 0, intercept: 0, seSlope: Infinity, ciLo: 0, ciHi: 0, halfWidth: Infinity };
+  }
+  const mx = xs.reduce((a, b) => a + b, 0) / n;
+  const my = ys.reduce((a, b) => a + b, 0) / n;
+  let sxy = 0, sxx = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - mx;
+    sxy += dx * (ys[i] - my);
+    sxx += dx * dx;
+  }
+  if (sxx === 0) {
+    return { n, slope: 0, intercept: my, seSlope: Infinity, ciLo: 0, ciHi: 0, halfWidth: Infinity };
+  }
+  const slope = sxy / sxx;
+  const intercept = my - slope * mx;
+  let rss = 0;
+  for (let i = 0; i < n; i++) {
+    const resid = ys[i] - (intercept + slope * xs[i]);
+    rss += resid * resid;
+  }
+  const seSlope = Math.sqrt(rss / (n - 2) / sxx);
+  const tCrit = tInv(0.975, n - 2);
+  const halfWidth = tCrit * seSlope;
+  return {
+    n,
+    slope,
+    intercept,
+    seSlope,
+    ciLo: slope - halfWidth,
+    ciHi: slope + halfWidth,
+    halfWidth
+  };
+}
+const PILOT_RAW = [
+  [0.200944840766204, 84.7987767354498],
+  [-0.94599477580203, 70.1216383299743],
+  [-2.48936587045346, 60.8555106949125],
+  [-0.388741287251942, 81.5680909034565],
+  [0.0531635615261993, 69.5881352028135],
+  [-0.334229203636791, 63.0867955656326],
+  [0.321646750785367, 73.3857117755144],
+  [0.508541613415559, 84.3819665480401],
+  [1.26486603503478, 64.0022933857756],
+  [0.690948171904471, 82.7708467272542],
+  [-0.337023212917468, 71.7488156308087],
+  [-0.994683173962474, 70.8198868886416],
+  [-0.344035807236856, 69.0949261701942],
+  [-2.20767674396917, 73.6759890378592],
+  [-0.316055294672376, 75.5863261250576],
+  [0.103946873430395, 83.9531364348329],
+  [0.109192434387648, 78.1357747530913],
+  [0.137063347532386, 78.2671127509362],
+  [-0.507859767682206, 69.4672818860399],
+  [1.05011268125107, 67.3310013836335]
+];
+function generatePilotData() {
+  return PILOT_RAW.map(([biomarker, lifespan]) => ({ biomarker, lifespan })).sort((a, b) => a.biomarker - b.biomarker).map((p, i) => ({ id: i + 1, biomarker: p.biomarker, lifespan: p.lifespan }));
+}
+function resampleWithReplacement(data, n) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const idx = Math.floor(Math.random() * data.length);
+    out.push({ ...data[idx], resampleIdx: i + 1 });
+  }
+  return out;
+}
+function niceRange(min, max) {
+  const span = max - min;
+  const step = niceStep(span / 5);
+  const niceMin = Math.floor(min / step) * step;
+  const niceMax = Math.ceil(max / step) * step;
+  return { min: niceMin, max: niceMax, step };
+}
+function niceStep(rough) {
+  const pow10 = Math.pow(10, Math.floor(Math.log10(rough)));
+  const frac = rough / pow10;
+  let nice;
+  if (frac < 1.5) nice = 1;
+  else if (frac < 3) nice = 2;
+  else if (frac < 7) nice = 5;
+  else nice = 10;
+  return nice * pow10;
+}
+function computeAxisRanges(data) {
+  const ys = data.map((d) => d.lifespan);
+  return {
+    x: { min: -2.5, max: 2.5 },
+    y: { min: Math.min(...ys) - 2, max: Math.max(...ys) + 2 }
+  };
+}
+function PageContainer({ children }) {
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      className: "bu-sam-03",
+      style: {
+        minHeight: "100vh",
+        background: COLORS.lightGray,
+        paddingBottom: 96
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { style: { maxWidth: 1536, margin: "0 auto", padding: "16px 24px" } }, children)
+  );
+}
+function InstructionCard({ title, children }) {
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        background: COLORS.white,
+        border: `1px solid ${COLORS.intLightGray}`,
+        borderLeft: `4px solid ${COLORS.blue}`,
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 16,
+        boxShadow: "0 2px 6px rgba(0,0,0,0.06)"
+      }
+    },
+    title && /* @__PURE__ */ React.createElement("div", { style: TEXT.cardTitle }, title),
+    /* @__PURE__ */ React.createElement("div", { style: TEXT.body }, children)
+  );
+}
+function StyledButton({
+  children,
+  onClick,
+  disabled = false,
+  variant = "primary",
+  style = {},
+  title,
+  uppercase = false
+}) {
+  const [hover, setHover] = useState(false);
+  const variants = {
+    primary: {
+      base: { bg: COLORS.black, fg: COLORS.white, bd: COLORS.black, shadow: "0 2px 8px rgba(0,0,0,0.15)" },
+      hover: { bg: COLORS.purple, fg: COLORS.white, bd: COLORS.purple, shadow: "0 4px 12px rgba(0,0,0,0.2)" },
+      dis: { bg: COLORS.midGray, fg: COLORS.white, bd: COLORS.midGray, shadow: "none" }
+    },
+    secondary: {
+      base: { bg: COLORS.lightGray, fg: COLORS.darkGray, bd: COLORS.lightGray, shadow: "0 1px 3px rgba(0,0,0,0.1)" },
+      hover: { bg: COLORS.darkGray, fg: COLORS.white, bd: COLORS.black, shadow: "0 3px 10px rgba(0,0,0,0.18)" },
+      dis: { bg: COLORS.intLightGray, fg: COLORS.midGray, bd: COLORS.intLightGray, shadow: "none" }
+    },
+    tertiary: {
+      base: { bg: "transparent", fg: COLORS.darkGray, bd: "transparent", shadow: "none" },
+      hover: { bg: "transparent", fg: COLORS.black, bd: "transparent", shadow: "none" },
+      dis: { bg: "transparent", fg: COLORS.midGray, bd: "transparent", shadow: "none" }
+    },
+    outlined: {
+      base: { bg: COLORS.white, fg: COLORS.darkGray, bd: COLORS.darkGray, shadow: "none" },
+      hover: { bg: COLORS.lightGray, fg: COLORS.black, bd: COLORS.black, shadow: "0 2px 6px rgba(0,0,0,0.12)" },
+      dis: { bg: COLORS.white, fg: COLORS.midGray, bd: COLORS.intLightGray, shadow: "none" }
+    }
+  };
+  const v = variants[variant] || variants.primary;
+  const s = disabled ? v.dis : hover ? v.hover : v.base;
+  const isTertiary = variant === "tertiary";
+  return /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick,
+      disabled,
+      onMouseEnter: () => setHover(true),
+      onMouseLeave: () => setHover(false),
+      title,
+      style: {
+        ...TEXT.button,
+        padding: "8px 16px",
+        borderRadius: isTertiary ? 4 : 8,
+        border: `2px solid ${s.bd}`,
+        background: s.bg,
+        color: s.fg,
+        cursor: disabled ? "not-allowed" : "pointer",
+        boxShadow: s.shadow,
+        textTransform: uppercase ? "uppercase" : "none",
+        letterSpacing: uppercase ? "0.03em" : "normal",
+        transition: "all 0.15s ease",
+        textDecoration: isTertiary && hover && !disabled ? "underline" : "none",
+        ...style
+      }
+    },
+    children
+  );
+}
+function NavigationFooter({
+  onReset,
+  onPrevious,
+  onNext,
+  canGoNext,
+  nextLabel = "NEXT",
+  nextDisabledMessage = "Complete all steps to continue",
+  showPrevious = true
+}) {
+  const [showMsg, setShowMsg] = useState(false);
+  const handleNextClick = () => {
+    if (!canGoNext) {
+      setShowMsg(true);
+      setTimeout(() => setShowMsg(false), 2500);
+      return;
+    }
+    onNext();
+  };
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        position: "fixed",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        background: COLORS.white,
+        borderTop: `1px solid ${COLORS.intLightGray}`,
+        boxShadow: "0 -2px 10px rgba(0,0,0,0.06)",
+        padding: "12px 24px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        zIndex: 1e3
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", null, onReset && /* @__PURE__ */ React.createElement(StyledButton, { variant: "tertiary", onClick: onReset, uppercase: true }, "Reset")),
+    /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 12, alignItems: "center" } }, showMsg && /* @__PURE__ */ React.createElement("span", { style: { ...TEXT.caption, color: COLORS.orange } }, nextDisabledMessage), showPrevious && /* @__PURE__ */ React.createElement(StyledButton, { variant: "outlined", onClick: onPrevious, uppercase: true }, "Previous"), /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        onClick: !canGoNext ? handleNextClick : void 0,
+        style: { display: "inline-block" }
+      },
+      /* @__PURE__ */ React.createElement(
+        StyledButton,
+        {
+          variant: "primary",
+          disabled: !canGoNext,
+          onClick: canGoNext ? onNext : void 0,
+          title: canGoNext ? void 0 : nextDisabledMessage,
+          uppercase: true
+        },
+        nextLabel
+      )
+    ))
+  );
+}
+function StepButton({
+  number,
+  label,
+  active,
+  disabled,
+  onClick,
+  refCb
+}) {
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 10,
+        opacity: disabled && !active ? 0.5 : 1
+      },
+      ref: refCb
+    },
+    /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        style: {
+          flex: "0 0 auto",
+          width: 24,
+          height: 24,
+          borderRadius: "50%",
+          background: active ? COLORS.purple : COLORS.midGray,
+          color: COLORS.white,
+          fontWeight: 700,
+          fontSize: 12,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center"
+        }
+      },
+      number
+    ),
+    /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        onClick,
+        disabled,
+        style: {
+          flex: 1,
+          textAlign: "left",
+          padding: "8px 12px",
+          borderRadius: 8,
+          border: `2px solid ${active ? COLORS.purple : COLORS.intLightGray}`,
+          background: active ? COLORS.white : COLORS.lightGray,
+          color: disabled ? COLORS.midGray : COLORS.black,
+          fontWeight: active ? 600 : 500,
+          fontSize: 13,
+          cursor: disabled ? "not-allowed" : "pointer",
+          fontFamily: FONT_STACK,
+          boxShadow: active ? "0 2px 6px rgba(111,0,255,0.15)" : "none",
+          transition: "all 0.15s ease"
+        }
+      },
+      label
+    )
+  );
+}
+const ScatterChart = React.forwardRef(function ScatterChart2({
+  data,
+  xRange,
+  yRange,
+  xLabel = "Biomarker",
+  yLabel = "Lifespan (yrs)",
+  highlightIds = [],
+  showConcentric = false,
+  onClickPoint,
+  onClickChart,
+  pointRefsCb
+}, ref) {
+  const localRef = useRef(null);
+  const wrapRef = ref || localRef;
+  const [size, setSize] = useState({ w: 400, h: 267 });
+  useEffect(() => {
+    if (!wrapRef.current) return;
+    const el = wrapRef.current;
+    const update = () => {
+      const w = el.clientWidth || 400;
+      setSize({ w, h: w / 1.5 });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [wrapRef]);
+  const margin = { t: 5, r: 2, b: 40, l: 46 };
+  const iw = size.w - margin.l - margin.r;
+  const ih = size.h - margin.t - margin.b;
+  const dupCounts = useMemo(() => {
+    if (!showConcentric) return null;
+    const m = /* @__PURE__ */ new Map();
+    data.forEach((d) => {
+      m.set(d.id, (m.get(d.id) || 0) + 1);
+    });
+    return m;
+  }, [data, showConcentric]);
+  const uniq = useMemo(() => {
+    if (!showConcentric) return data;
+    const seen = /* @__PURE__ */ new Set();
+    return data.filter((d) => {
+      if (seen.has(d.id)) return false;
+      seen.add(d.id);
+      return true;
+    });
+  }, [data, showConcentric]);
+  const xPos = (v) => margin.l + (v - xRange.min) / (xRange.max - xRange.min) * iw;
+  const yPos = (v) => margin.t + ih - (v - yRange.min) / (yRange.max - yRange.min) * ih;
+  const yTicks = 5;
+  const xTickVals = [-2, -1, 0, 1, 2];
+  const yTickVals = Array.from({ length: yTicks }, (_, i) => yRange.min + i * (yRange.max - yRange.min) / (yTicks - 1));
+  const pointsToRender = showConcentric ? uniq : data;
+  return /* @__PURE__ */ React.createElement("div", { ref: wrapRef, style: { width: "100%", userSelect: "none" } }, /* @__PURE__ */ React.createElement(
+    "svg",
+    {
+      viewBox: `0 0 ${size.w} ${size.h}`,
+      width: "100%",
+      height: size.h,
+      style: { background: COLORS.white, display: "block" },
+      onClick: onClickChart
+    },
+    xTickVals.map((v, i) => /* @__PURE__ */ React.createElement("line", { key: `xg${i}`, x1: xPos(v), y1: margin.t, x2: xPos(v), y2: margin.t + ih, stroke: COLORS.intLightGray })),
+    yTickVals.map((v, i) => /* @__PURE__ */ React.createElement("line", { key: `yg${i}`, x1: margin.l, y1: yPos(v), x2: margin.l + iw, y2: yPos(v), stroke: COLORS.intLightGray })),
+    xTickVals.map((v, i) => /* @__PURE__ */ React.createElement(
+      "text",
+      {
+        key: `xt${i}`,
+        x: xPos(v),
+        y: margin.t + ih + 16,
+        textAnchor: "middle",
+        fontFamily: MONO_STACK,
+        fontSize: "11",
+        fill: COLORS.darkGray
+      },
+      Math.round(v)
+    )),
+    yTickVals.map((v, i) => /* @__PURE__ */ React.createElement(
+      "text",
+      {
+        key: `yt${i}`,
+        x: margin.l - 6,
+        y: yPos(v) + 4,
+        textAnchor: "end",
+        fontFamily: MONO_STACK,
+        fontSize: "11",
+        fill: COLORS.darkGray
+      },
+      Math.round(v)
+    )),
+    /* @__PURE__ */ React.createElement(
+      "text",
+      {
+        x: margin.l + iw / 2,
+        y: size.h - 4,
+        textAnchor: "middle",
+        fontFamily: MONO_STACK,
+        fontSize: "12",
+        fill: COLORS.darkGray
+      },
+      xLabel
+    ),
+    /* @__PURE__ */ React.createElement(
+      "text",
+      {
+        x: 12,
+        y: margin.t + ih / 2,
+        textAnchor: "middle",
+        fontFamily: MONO_STACK,
+        fontSize: "12",
+        fill: COLORS.darkGray,
+        transform: `rotate(-90,12,${margin.t + ih / 2})`
+      },
+      yLabel
+    ),
+    pointsToRender.map((d, idx) => {
+      const cx = xPos(d.biomarker);
+      const cy = yPos(d.lifespan);
+      const isHl = highlightIds.includes(d.id);
+      const dupN = dupCounts ? dupCounts.get(d.id) || 1 : 1;
+      return /* @__PURE__ */ React.createElement(
+        "g",
+        {
+          key: `p-${d.id}-${idx}`,
+          ref: (node) => pointRefsCb && pointRefsCb(d.id, node),
+          onClick: (e) => {
+            if (onClickPoint) {
+              e.stopPropagation();
+              onClickPoint(d);
+            }
+          },
+          style: { cursor: onClickPoint ? "pointer" : "default" }
+        },
+        showConcentric && dupN > 1 && Array.from({ length: dupN - 1 }).map((_, k) => /* @__PURE__ */ React.createElement(
+          "circle",
+          {
+            key: `r${k}`,
+            cx,
+            cy,
+            r: 5.5 + k * 2.5,
+            fill: "none",
+            stroke: COLORS.purple,
+            strokeWidth: "2",
+            opacity: 0.8 - k * 0.1
+          }
+        )),
+        isHl && /* @__PURE__ */ React.createElement("circle", { cx, cy, r: 10, fill: "none", stroke: COLORS.yellow, strokeWidth: "3" }),
+        /* @__PURE__ */ React.createElement("circle", { cx, cy, r: 4, fill: showConcentric ? COLORS.purple : COLORS.black })
+      );
+    })
+  ));
+});
+function BiomarkerTable({
+  data,
+  highlightIds = [],
+  showOrigIndex = false,
+  fillTo = null,
+  newestId = null,
+  scrollRef
+}) {
+  const total = fillTo ?? data.length;
+  const rows = [];
+  for (let i = 0; i < total; i++) {
+    const row = data[i];
+    rows.push(row || null);
+  }
+  const headerCell = {
+    padding: "8px",
+    background: COLORS.lightGray,
+    fontSize: 12,
+    fontWeight: 700,
+    color: COLORS.darkGray,
+    position: "sticky",
+    top: 0,
+    borderBottom: `1px solid ${COLORS.intLightGray}`,
+    zIndex: 1
+  };
+  const cell = {
+    padding: "8px",
+    fontSize: 12,
+    color: COLORS.darkGray,
+    borderBottom: `1px solid ${COLORS.intLightGray}`
+  };
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      ref: scrollRef,
+      className: "table-scroll",
+      style: {
+        maxHeight: 200,
+        overflowY: "auto",
+        border: `1px solid ${COLORS.intLightGray}`,
+        borderRadius: 6,
+        background: COLORS.white
+      }
+    },
+    /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontFamily: MONO_STACK } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { ...headerCell, textAlign: "left" } }, "#"), showOrigIndex && /* @__PURE__ */ React.createElement("th", { style: { ...headerCell, textAlign: "left" } }, "Orig"), /* @__PURE__ */ React.createElement("th", { style: { ...headerCell, textAlign: "right" } }, "Biomarker"), /* @__PURE__ */ React.createElement("th", { style: { ...headerCell, textAlign: "right" } }, "Lifespan"))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((row, i) => {
+      if (!row) {
+        return /* @__PURE__ */ React.createElement("tr", { key: `empty-${i}` }, /* @__PURE__ */ React.createElement("td", { style: cell }, i + 1), showOrigIndex && /* @__PURE__ */ React.createElement("td", { style: cell }, "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...cell, textAlign: "right" } }, "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { ...cell, textAlign: "right" } }, "\u2014"));
+      }
+      const isHl = highlightIds.includes(row.id);
+      const isNewest = newestId !== null && row.id === newestId && i === data.length - 1;
+      return /* @__PURE__ */ React.createElement(
+        "tr",
+        {
+          key: `row-${i}`,
+          className: isNewest ? "row-fade-in" : "",
+          style: {
+            background: isHl ? COLORS.yellowFade : COLORS.white,
+            borderLeft: isHl ? `3px solid ${COLORS.yellow}` : "3px solid transparent"
+          }
+        },
+        /* @__PURE__ */ React.createElement("td", { style: cell }, i + 1),
+        showOrigIndex && /* @__PURE__ */ React.createElement("td", { style: cell }, row.id),
+        /* @__PURE__ */ React.createElement("td", { style: { ...cell, textAlign: "right" } }, row.biomarker.toFixed(1)),
+        /* @__PURE__ */ React.createElement("td", { style: { ...cell, textAlign: "right" } }, row.lifespan.toFixed(1))
+      );
+    })))
+  );
+}
+function ConcentricLegend() {
+  const rows = [1, 2, 3];
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        border: `1px solid ${COLORS.intLightGray}`,
+        borderRadius: 8,
+        padding: 10,
+        background: COLORS.white,
+        width: "100%"
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.compact, fontWeight: 700, marginBottom: 6 } }, "Times sampled"),
+    rows.map((n) => /* @__PURE__ */ React.createElement("div", { key: n, style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4 } }, /* @__PURE__ */ React.createElement("svg", { width: 22, height: 22 }, /* @__PURE__ */ React.createElement("circle", { cx: 11, cy: 11, r: 4, fill: COLORS.purple }), Array.from({ length: n - 1 }).map((_, k) => /* @__PURE__ */ React.createElement(
+      "circle",
+      {
+        key: k,
+        cx: 11,
+        cy: 11,
+        r: 5.5 + k * 2.5,
+        fill: "none",
+        stroke: COLORS.purple,
+        strokeWidth: "2",
+        opacity: 0.8 - k * 0.1
+      }
+    ))), /* @__PURE__ */ React.createElement("span", { style: { ...TEXT.compact, fontFamily: MONO_STACK } }, n, "\xD7")))
+  );
+}
+const FOREST_Y_MIN = -8;
+const FOREST_Y_MAX = 12;
+const FOREST_BAR_WIDTH = 60;
+const FOREST_CHART_HEIGHT = 200;
+const FOREST_LEFT_GUTTER = 100;
+const FOREST_RIGHT_PAD = 16;
+const FOREST_TABLE_ROW_H = 22;
+const FOREST_TABLE_ROW_HEIGHTS = [
+  FOREST_TABLE_ROW_H,
+  // 0: Resample #
+  FOREST_TABLE_ROW_H,
+  // 1: Slope (m)
+  FOREST_TABLE_ROW_H * 2,
+  // 2: 95% CI (double-height for wrap)
+  FOREST_TABLE_ROW_H
+  // 3: Half-width (±)
+];
+const FOREST_TABLE_HEIGHT = FOREST_TABLE_ROW_HEIGHTS.reduce((a, b) => a + b, 0);
+const FOREST_TABLE_TOP_GAP = 4;
+function ForestPanel({ results, firstBarRef }) {
+  const scrollRef = useRef(null);
+  const prevLen = useRef(results.length);
+  const userScrolled = useRef(false);
+  const programmaticScroll = useRef(false);
+  const handleScroll = useCallback(() => {
+    if (programmaticScroll.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const atRight = el.scrollLeft + el.clientWidth >= el.scrollWidth - 4;
+    userScrolled.current = !atRight;
+  }, []);
+  useEffect(() => {
+    if (results.length > prevLen.current && results.length > 1 && !userScrolled.current) {
+      const el = scrollRef.current;
+      if (el) {
+        const newestBarRight = FOREST_LEFT_GUTTER + results.length * FOREST_BAR_WIDTH + 8;
+        const viewportRight = el.scrollLeft + el.clientWidth;
+        if (newestBarRight > viewportRight) {
+          programmaticScroll.current = true;
+          el.scrollLeft = newestBarRight - el.clientWidth;
+          requestAnimationFrame(() => {
+            programmaticScroll.current = false;
+          });
+        }
+      }
+    }
+    prevLen.current = results.length;
+  }, [results.length]);
+  const yRange = FOREST_Y_MAX - FOREST_Y_MIN;
+  const yPos = (v) => FOREST_CHART_HEIGHT - (v - FOREST_Y_MIN) / yRange * FOREST_CHART_HEIGHT;
+  const yTicks = [12, 8, 4, 0, -4, -8];
+  const nCols = 100;
+  const innerWidth = FOREST_LEFT_GUTTER + nCols * FOREST_BAR_WIDTH + FOREST_RIGHT_PAD;
+  const totalHeight = FOREST_CHART_HEIGHT + FOREST_TABLE_TOP_GAP + FOREST_TABLE_HEIGHT;
+  const tableTop = FOREST_CHART_HEIGHT + FOREST_TABLE_TOP_GAP;
+  const rowY = (rowIdx) => {
+    let y = tableTop;
+    for (let k = 0; k < rowIdx; k++) y += FOREST_TABLE_ROW_HEIGHTS[k];
+    return y;
+  };
+  const rowMidY = (rowIdx) => rowY(rowIdx) + FOREST_TABLE_ROW_HEIGHTS[rowIdx] / 2 + 4;
+  return /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      ref: scrollRef,
+      onScroll: handleScroll,
+      className: "table-scroll",
+      style: {
+        overflowX: "auto",
+        overflowY: "hidden",
+        border: `1px solid ${COLORS.intLightGray}`,
+        borderRadius: 6,
+        background: COLORS.white,
+        minWidth: 0,
+        maxWidth: "100%"
+      }
+    },
+    /* @__PURE__ */ React.createElement(
+      "svg",
+      {
+        width: innerWidth,
+        height: totalHeight,
+        style: { display: "block" },
+        role: "img",
+        "aria-label": "Forest plot of slope estimates across bootstrap resamples"
+      },
+      yTicks.map((v) => /* @__PURE__ */ React.createElement("g", { key: `y${v}` }, /* @__PURE__ */ React.createElement(
+        "line",
+        {
+          x1: FOREST_LEFT_GUTTER,
+          y1: yPos(v),
+          x2: innerWidth - FOREST_RIGHT_PAD,
+          y2: yPos(v),
+          stroke: v === 0 ? COLORS.darkGray : COLORS.intLightGray,
+          strokeDasharray: v === 0 ? "none" : "3,2",
+          strokeWidth: v === 0 ? 1 : 1
+        }
+      ), /* @__PURE__ */ React.createElement(
+        "text",
+        {
+          x: FOREST_LEFT_GUTTER - 6,
+          y: yPos(v) + 4,
+          textAnchor: "end",
+          fontFamily: MONO_STACK,
+          fontSize: "11",
+          fill: COLORS.darkGray
+        },
+        v
+      ))),
+      /* @__PURE__ */ React.createElement(
+        "text",
+        {
+          x: 14,
+          y: FOREST_CHART_HEIGHT / 2,
+          textAnchor: "middle",
+          fontFamily: MONO_STACK,
+          fontSize: "11",
+          fill: COLORS.darkGray,
+          transform: `rotate(-90, 14, ${FOREST_CHART_HEIGHT / 2})`
+        },
+        "Slope m (yr/unit)"
+      ),
+      /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement(
+        "rect",
+        {
+          x: FOREST_LEFT_GUTTER,
+          y: tableTop,
+          width: innerWidth - FOREST_LEFT_GUTTER - FOREST_RIGHT_PAD,
+          height: FOREST_TABLE_HEIGHT,
+          fill: COLORS.lightGray
+        }
+      ), /* @__PURE__ */ React.createElement(
+        "rect",
+        {
+          x: 0,
+          y: tableTop,
+          width: FOREST_LEFT_GUTTER,
+          height: FOREST_TABLE_HEIGHT,
+          fill: COLORS.lightGray
+        }
+      ), Array.from({ length: FOREST_TABLE_ROW_HEIGHTS.length + 1 }).map((_, k) => {
+        const y = k < FOREST_TABLE_ROW_HEIGHTS.length ? rowY(k) : tableTop + FOREST_TABLE_HEIGHT;
+        return /* @__PURE__ */ React.createElement(
+          "line",
+          {
+            key: `hr${k}`,
+            x1: 0,
+            x2: innerWidth - FOREST_RIGHT_PAD,
+            y1: y,
+            y2: y,
+            stroke: COLORS.intLightGray,
+            strokeWidth: "1"
+          }
+        );
+      }), /* @__PURE__ */ React.createElement(
+        "line",
+        {
+          x1: FOREST_LEFT_GUTTER,
+          x2: FOREST_LEFT_GUTTER,
+          y1: tableTop,
+          y2: tableTop + FOREST_TABLE_HEIGHT,
+          stroke: COLORS.intLightGray,
+          strokeWidth: "1"
+        }
+      ), Array.from({ length: 100 }).map((_, k) => /* @__PURE__ */ React.createElement(
+        "line",
+        {
+          key: `vc${k}`,
+          x1: FOREST_LEFT_GUTTER + (k + 1) * FOREST_BAR_WIDTH,
+          x2: FOREST_LEFT_GUTTER + (k + 1) * FOREST_BAR_WIDTH,
+          y1: tableTop,
+          y2: tableTop + FOREST_TABLE_HEIGHT,
+          stroke: COLORS.intLightGray,
+          strokeWidth: "1"
+        }
+      )), /* @__PURE__ */ React.createElement(
+        "text",
+        {
+          x: FOREST_LEFT_GUTTER - 6,
+          y: rowMidY(0),
+          textAnchor: "end",
+          fontFamily: MONO_STACK,
+          fontSize: "11",
+          fontWeight: "700",
+          fill: COLORS.darkGray
+        },
+        "Resample #"
+      ), /* @__PURE__ */ React.createElement(
+        "text",
+        {
+          x: FOREST_LEFT_GUTTER - 6,
+          y: rowMidY(1),
+          textAnchor: "end",
+          fontFamily: MONO_STACK,
+          fontSize: "11",
+          fontWeight: "700",
+          fill: COLORS.darkGray
+        },
+        "Slope (m)"
+      ), /* @__PURE__ */ React.createElement(
+        "text",
+        {
+          x: FOREST_LEFT_GUTTER - 6,
+          y: rowMidY(2),
+          textAnchor: "end",
+          fontFamily: MONO_STACK,
+          fontSize: "11",
+          fontWeight: "700",
+          fill: COLORS.darkGray
+        },
+        "95% CI"
+      ), /* @__PURE__ */ React.createElement(
+        "text",
+        {
+          x: FOREST_LEFT_GUTTER - 6,
+          y: rowMidY(3),
+          textAnchor: "end",
+          fontFamily: MONO_STACK,
+          fontSize: "11",
+          fontWeight: "700",
+          fill: COLORS.darkGray
+        },
+        "Half-width (\xB1)"
+      )),
+      results.map((r, i) => {
+        const cx = FOREST_LEFT_GUTTER + i * FOREST_BAR_WIDTH + FOREST_BAR_WIDTH / 2;
+        const slopeClipped = Math.max(FOREST_Y_MIN, Math.min(FOREST_Y_MAX, r.slope));
+        const cy = yPos(slopeClipped);
+        const ciValid = r.showCI && r.ciLo !== null && r.ciHi !== null;
+        const clippedLo = ciValid ? Math.max(r.ciLo, FOREST_Y_MIN) : 0;
+        const clippedHi = ciValid ? Math.min(r.ciHi, FOREST_Y_MAX) : 0;
+        const hasLoClip = ciValid && r.ciLo < FOREST_Y_MIN;
+        const hasHiClip = ciValid && r.ciHi > FOREST_Y_MAX;
+        return /* @__PURE__ */ React.createElement(
+          "g",
+          {
+            key: i,
+            ref: i === 0 ? firstBarRef : void 0,
+            className: i === 0 ? void 0 : "forest-bar-in"
+          },
+          ciValid && /* @__PURE__ */ React.createElement(
+            "g",
+            {
+              className: "forest-ci-extend",
+              style: {
+                transformBox: "fill-box",
+                transformOrigin: `${cx}px ${cy}px`
+              }
+            },
+            /* @__PURE__ */ React.createElement(
+              "line",
+              {
+                x1: cx,
+                y1: yPos(clippedHi),
+                x2: cx,
+                y2: yPos(clippedLo),
+                stroke: COLORS.purple,
+                strokeWidth: "2"
+              }
+            ),
+            hasHiClip ? /* @__PURE__ */ React.createElement(
+              "polygon",
+              {
+                points: `${cx},${yPos(FOREST_Y_MAX) - 2} ${cx - 5},${yPos(FOREST_Y_MAX) + 5} ${cx + 5},${yPos(FOREST_Y_MAX) + 5}`,
+                fill: COLORS.purple
+              }
+            ) : /* @__PURE__ */ React.createElement(
+              "line",
+              {
+                x1: cx - 6,
+                y1: yPos(clippedHi),
+                x2: cx + 6,
+                y2: yPos(clippedHi),
+                stroke: COLORS.purple,
+                strokeWidth: "2"
+              }
+            ),
+            hasLoClip ? /* @__PURE__ */ React.createElement(
+              "polygon",
+              {
+                points: `${cx},${yPos(FOREST_Y_MIN) + 2} ${cx - 5},${yPos(FOREST_Y_MIN) - 5} ${cx + 5},${yPos(FOREST_Y_MIN) - 5}`,
+                fill: COLORS.purple
+              }
+            ) : /* @__PURE__ */ React.createElement(
+              "line",
+              {
+                x1: cx - 6,
+                y1: yPos(clippedLo),
+                x2: cx + 6,
+                y2: yPos(clippedLo),
+                stroke: COLORS.purple,
+                strokeWidth: "2"
+              }
+            )
+          ),
+          /* @__PURE__ */ React.createElement("circle", { cx, cy, r: 4, fill: COLORS.purple }),
+          /* @__PURE__ */ React.createElement(
+            "text",
+            {
+              x: cx,
+              y: rowMidY(0),
+              textAnchor: "middle",
+              fontFamily: MONO_STACK,
+              fontSize: "11",
+              fontWeight: "700",
+              fill: COLORS.black
+            },
+            r.idx
+          ),
+          /* @__PURE__ */ React.createElement(
+            "text",
+            {
+              x: cx,
+              y: rowMidY(1),
+              textAnchor: "middle",
+              fontFamily: MONO_STACK,
+              fontSize: "11",
+              fill: COLORS.darkGray
+            },
+            r.slope.toFixed(2)
+          ),
+          ciValid && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+            "text",
+            {
+              x: cx,
+              y: rowY(2) + 14,
+              textAnchor: "middle",
+              fontFamily: MONO_STACK,
+              fontSize: "11",
+              fill: COLORS.darkGray
+            },
+            "[",
+            r.ciLo.toFixed(2),
+            ","
+          ), /* @__PURE__ */ React.createElement(
+            "text",
+            {
+              x: cx,
+              y: rowY(2) + 30,
+              textAnchor: "middle",
+              fontFamily: MONO_STACK,
+              fontSize: "11",
+              fill: COLORS.darkGray
+            },
+            r.ciHi.toFixed(2),
+            "]"
+          )),
+          ciValid && /* @__PURE__ */ React.createElement(
+            "text",
+            {
+              x: cx,
+              y: rowMidY(3),
+              textAnchor: "middle",
+              fontFamily: MONO_STACK,
+              fontSize: "11",
+              fill: COLORS.purple
+            },
+            "\xB1",
+            isFinite(r.halfWidth) ? r.halfWidth.toFixed(2) : "\u221E"
+          )
+        );
+      })
+    )
+  );
+}
+function PrecisionCurve({ data }) {
+  const wrap = useRef(null);
+  const [w, setW] = useState(600);
+  useEffect(() => {
+    if (!wrap.current) return;
+    const el = wrap.current;
+    const update = () => setW(Math.min(el.clientWidth || 600, 600));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const h = 400;
+  const m = { t: 20, r: 20, b: 50, l: 60 };
+  const iw = w - m.l - m.r;
+  const ih = h - m.t - m.b;
+  const [tip, setTip] = useState(null);
+  const sorted = [...data].sort((a, b) => a.n - b.n);
+  const ns = sorted.map((d) => d.n);
+  const hws = sorted.map((d) => d.medianHalfWidth).filter((v) => isFinite(v));
+  const xMin = 0;
+  const xMax = Math.max(10, Math.max(...ns, 100));
+  const xStep = niceStep(xMax / 6);
+  const niceXMax = Math.ceil(xMax / xStep) * xStep;
+  const xTickVals = [];
+  for (let v = 0; v <= niceXMax; v += xStep) xTickVals.push(v);
+  const dataMax = hws.length ? Math.max(...hws) : PRECISION_TARGET * 4;
+  const niceYMax = Math.max(
+    Math.ceil(dataMax * 1.1),
+    Math.ceil(PRECISION_TARGET * 4)
+  );
+  const yStep = niceStep(niceYMax / 5);
+  const yTicks = [];
+  for (let v = 0; v <= niceYMax; v += yStep) yTicks.push(v);
+  const xPos = (v) => m.l + v / niceXMax * iw;
+  const yPos = (v) => m.t + ih - v / niceYMax * ih;
+  const safeY = (v) => isFinite(v) ? yPos(v) : yPos(niceYMax);
+  const pathD = sorted.map(
+    (d, i) => `${i === 0 ? "M" : "L"}${xPos(d.n).toFixed(1)},${safeY(d.medianHalfWidth).toFixed(1)}`
+  ).join(" ");
+  return /* @__PURE__ */ React.createElement("div", { ref: wrap, className: "slide-in", style: { width: "100%", maxWidth: 600, position: "relative" } }, /* @__PURE__ */ React.createElement("svg", { viewBox: `0 0 ${w} ${h}`, width: "100%", height: h }, xTickVals.map((v, i) => /* @__PURE__ */ React.createElement(
+    "line",
+    {
+      key: `gx${i}`,
+      x1: xPos(v),
+      y1: m.t,
+      x2: xPos(v),
+      y2: m.t + ih,
+      stroke: COLORS.intLightGray
+    }
+  )), yTicks.map((v, i) => /* @__PURE__ */ React.createElement(
+    "line",
+    {
+      key: `gy${i}`,
+      x1: m.l,
+      y1: yPos(v),
+      x2: m.l + iw,
+      y2: yPos(v),
+      stroke: COLORS.intLightGray
+    }
+  )), /* @__PURE__ */ React.createElement(
+    "line",
+    {
+      x1: m.l,
+      y1: yPos(PRECISION_TARGET),
+      x2: m.l + iw,
+      y2: yPos(PRECISION_TARGET),
+      stroke: COLORS.orange,
+      strokeWidth: "2",
+      strokeDasharray: "4,3"
+    }
+  ), /* @__PURE__ */ React.createElement(
+    "text",
+    {
+      x: m.l + iw - 6,
+      y: yPos(PRECISION_TARGET) - 4,
+      textAnchor: "end",
+      fontFamily: MONO_STACK,
+      fontSize: "11",
+      fill: COLORS.orange,
+      fontWeight: "600"
+    },
+    "\xB1",
+    PRECISION_TARGET,
+    " yr target"
+  ), xTickVals.map((v, i) => /* @__PURE__ */ React.createElement(
+    "text",
+    {
+      key: `lx${i}`,
+      x: xPos(v),
+      y: m.t + ih + 16,
+      textAnchor: "middle",
+      fontFamily: MONO_STACK,
+      fontSize: "11",
+      fill: COLORS.darkGray
+    },
+    v
+  )), yTicks.map((v, i) => /* @__PURE__ */ React.createElement(
+    "text",
+    {
+      key: `ly${i}`,
+      x: m.l - 8,
+      y: yPos(v) + 4,
+      textAnchor: "end",
+      fontFamily: MONO_STACK,
+      fontSize: "11",
+      fill: COLORS.darkGray
+    },
+    v
+  )), /* @__PURE__ */ React.createElement(
+    "text",
+    {
+      x: m.l + iw / 2,
+      y: h - 10,
+      textAnchor: "middle",
+      fontFamily: MONO_STACK,
+      fontSize: "12",
+      fill: COLORS.darkGray
+    },
+    "Sample Size (n)"
+  ), /* @__PURE__ */ React.createElement(
+    "text",
+    {
+      x: 16,
+      y: m.t + ih / 2,
+      textAnchor: "middle",
+      fontFamily: MONO_STACK,
+      fontSize: "12",
+      fill: COLORS.darkGray,
+      transform: `rotate(-90,16,${m.t + ih / 2})`
+    },
+    "Median 95% CI half-width (yr)"
+  ), sorted.length > 1 && /* @__PURE__ */ React.createElement(
+    "path",
+    {
+      d: pathD,
+      fill: "none",
+      stroke: COLORS.purple,
+      strokeWidth: "3",
+      strokeLinecap: "round",
+      strokeLinejoin: "round"
+    }
+  ), sorted.map((d, i) => /* @__PURE__ */ React.createElement(
+    "circle",
+    {
+      key: i,
+      cx: xPos(d.n),
+      cy: safeY(d.medianHalfWidth),
+      r: 6,
+      fill: COLORS.purple,
+      stroke: COLORS.white,
+      strokeWidth: "2",
+      style: { cursor: "pointer" },
+      onMouseEnter: () => setTip({ n: d.n, hw: d.medianHalfWidth, x: xPos(d.n), y: safeY(d.medianHalfWidth) }),
+      onMouseLeave: () => setTip(null)
+    }
+  ))), tip && /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        position: "absolute",
+        left: tip.x,
+        top: tip.y - 40,
+        transform: "translateX(-50%)",
+        background: COLORS.black,
+        color: COLORS.white,
+        padding: "6px 10px",
+        borderRadius: 6,
+        fontSize: 12,
+        fontFamily: MONO_STACK,
+        pointerEvents: "none",
+        whiteSpace: "nowrap"
+      }
+    },
+    "n = ",
+    tip.n,
+    ": \xB1",
+    isFinite(tip.hw) ? tip.hw.toFixed(2) : "\u221E",
+    " yr"
+  ));
+}
+function InlineAlert({ kind = "info", children, onClose }) {
+  const palette = {
+    info: { bg: "#E8F1FF", bd: COLORS.blue },
+    success: { bg: "#E8F9E5", bd: COLORS.green },
+    warn: { bg: "#FFF6D6", bd: COLORS.yellow },
+    error: { bg: "#FFE4DA", bd: COLORS.orange }
+  };
+  const p = palette[kind] || palette.info;
+  return /* @__PURE__ */ React.createElement("div", { style: {
+    background: p.bg,
+    borderLeft: `4px solid ${p.bd}`,
+    padding: "10px 14px",
+    borderRadius: 6,
+    margin: "8px 0",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    ...TEXT.compact
+  } }, /* @__PURE__ */ React.createElement("div", null, children), onClose && /* @__PURE__ */ React.createElement(
+    "button",
+    {
+      onClick: onClose,
+      style: {
+        background: "transparent",
+        border: "none",
+        fontSize: 16,
+        cursor: "pointer",
+        color: COLORS.darkGray,
+        marginLeft: 12
+      }
+    },
+    "\xD7"
+  ));
+}
+const INITIAL_STATE = {
+  resampledData: [],
+  highlightedPoints: [],
+  // Page 2 — per-resample slope fit on the page-1 resample
+  slopeValue: null,
+  // m (yr/unit), revealed at Page 2 Step 1
+  interceptValue: null,
+  // fitted intercept (drawn with the line)
+  seSlope: null,
+  // SE(m), revealed at Step 2 (no longer displayed)
+  ciLo: null,
+  // 95% CI lower bound (Step 2)
+  ciHi: null,
+  // 95% CI upper bound (Step 2)
+  halfWidth: null,
+  // half-width in years (Step 2)
+  interactionStep: 0,
+  currentSelectedPoint: null,
+  // Per-resample results across 100 resamples. Each entry has
+  // {idx, n, slope, intercept, ciLo, ciHi, halfWidth} — no pass/fail.
+  manyResults: [],
+  showSummary: false,
+  // reveal median half-width (Step 5)
+  step2Completed: false,
+  // true once Step 5 completes
+  precisionCurve: [],
+  showPrecisionCurve: false,
+  currentDisplayN: 20,
+  userAnswer: "",
+  answerFeedback: null,
+  page2Step: 0,
+  // 0..5
+  page3Step1Done: false
+};
+function reducer(state, action) {
+  switch (action.type) {
+    case "SET":
+      return { ...state, ...action.payload };
+    case "RESET_PAGE1":
+      return INITIAL_STATE;
+    case "RESET_PAGE2":
+      return {
+        ...state,
+        slopeValue: null,
+        interceptValue: null,
+        seSlope: null,
+        ciLo: null,
+        ciHi: null,
+        halfWidth: null,
+        manyResults: [],
+        showSummary: false,
+        step2Completed: false,
+        page2Step: 0,
+        // and page 3
+        precisionCurve: [],
+        showPrecisionCurve: false,
+        userAnswer: "",
+        answerFeedback: null,
+        page3Step1Done: false
+      };
+    case "RESET_PAGE3":
+      return {
+        ...state,
+        precisionCurve: [],
+        showPrecisionCurve: false,
+        userAnswer: "",
+        answerFeedback: null,
+        page3Step1Done: false
+      };
+    default:
+      return state;
+  }
+}
+function BootstrapPrecisionActivity() {
+  const [page, setPage] = useState(1);
+  const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
+  const pilotData = useMemo(() => generatePilotData(), []);
+  const axisRanges = useMemo(() => computeAxisRanges(pilotData), [pilotData]);
+  const [pageAlert, setPageAlert] = useState(null);
+  const pilotPointRefs = useRef({});
+  const resamplePointRefs = useRef({});
+  const pilotChartRef = useRef(null);
+  const resampleChartRef = useRef(null);
+  const animatedDotRef = useRef(null);
+  const pilotTableRef = useRef(null);
+  const resampleTableRef = useRef(null);
+  const setPilotPointRef = useCallback((id, node) => {
+    if (node) pilotPointRefs.current[id] = node;
+  }, []);
+  const setResamplePointRef = useCallback((id, node) => {
+    if (node) resamplePointRefs.current[id] = node;
+  }, []);
+  useEffect(() => {
+    if (page === 2 && state.resampledData.length === 0) setPage(1);
+    if (page === 3 && !state.step2Completed) setPage(1);
+    if (page === 4 && state.answerFeedback !== "correct") setPage(1);
+  }, [page, state.resampledData.length, state.step2Completed, state.answerFeedback]);
+  const handleReset = useCallback(() => {
+    if (page === 1) dispatch({ type: "RESET_PAGE1" });
+    else if (page === 2) dispatch({ type: "RESET_PAGE2" });
+    else if (page === 3) dispatch({ type: "RESET_PAGE3" });
+  }, [page]);
+  const animateDotAndAdd = useCallback(async (point) => {
+    const sourceNode = pilotPointRefs.current[point.id];
+    const dot = animatedDotRef.current;
+    if (!sourceNode || !dot) {
+      const newResample2 = [...state.resampledData, { ...point, resampleIdx: state.resampledData.length + 1 }];
+      dispatch({
+        type: "SET",
+        payload: {
+          resampledData: newResample2,
+          highlightedPoints: [],
+          currentSelectedPoint: null,
+          interactionStep: newResample2.length >= 20 ? 3 : 0
+        }
+      });
+      return;
+    }
+    const sourceBox = sourceNode.getBoundingClientRect();
+    const pilotChartBox = pilotChartRef.current?.getBoundingClientRect();
+    const resampleChartBox = resampleChartRef.current?.getBoundingClientRect();
+    let targetX, targetY;
+    if (pilotChartBox && resampleChartBox) {
+      const relX = sourceBox.left + sourceBox.width / 2 - pilotChartBox.left;
+      const relY = sourceBox.top + sourceBox.height / 2 - pilotChartBox.top;
+      targetX = resampleChartBox.left + relX;
+      targetY = resampleChartBox.top + relY;
+    } else {
+      targetX = sourceBox.left;
+      targetY = sourceBox.top;
+    }
+    const durationForIdx = (i) => {
+      if (i === 0) return 1e3;
+      if (i === 1) return 800;
+      if (i === 2) return 600;
+      if (i === 3) return 400;
+      return 250;
+    };
+    const dur = durationForIdx(state.resampledData.length);
+    dot.style.transition = "none";
+    dot.style.left = `${sourceBox.left + sourceBox.width / 2 - 8}px`;
+    dot.style.top = `${sourceBox.top + sourceBox.height / 2 - 8}px`;
+    dot.style.opacity = "1";
+    void dot.offsetWidth;
+    dot.style.transition = `left ${dur}ms ease-in-out, top ${dur}ms ease-in-out`;
+    dot.style.left = `${targetX - 8}px`;
+    dot.style.top = `${targetY - 8}px`;
+    dispatch({ type: "SET", payload: { interactionStep: 2 } });
+    await new Promise((res) => setTimeout(res, dur));
+    dot.style.opacity = "0";
+    const newResample = [...state.resampledData, { ...point, resampleIdx: state.resampledData.length + 1 }];
+    dispatch({
+      type: "SET",
+      payload: {
+        resampledData: newResample,
+        highlightedPoints: [],
+        currentSelectedPoint: null,
+        interactionStep: newResample.length >= 20 ? 3 : 0
+      }
+    });
+    setTimeout(() => {
+      const el = resampleTableRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }, 50);
+  }, [state.resampledData]);
+  const handleStepSelect = useCallback(() => {
+    if (state.resampledData.length >= 20) return;
+    const idx = Math.floor(Math.random() * pilotData.length);
+    const pt = pilotData[idx];
+    dispatch({
+      type: "SET",
+      payload: {
+        currentSelectedPoint: pt,
+        highlightedPoints: [pt.id],
+        interactionStep: 1
+      }
+    });
+    setTimeout(() => {
+      const el = pilotTableRef.current;
+      if (el) {
+        const rowH = 33;
+        const idx1 = pilotData.findIndex((p) => p.id === pt.id);
+        el.scrollTop = Math.max(0, idx1 * rowH - el.clientHeight / 2);
+      }
+    }, 50);
+  }, [state.resampledData.length, pilotData]);
+  const handleStepAdd = useCallback(() => {
+    if (!state.currentSelectedPoint) return;
+    animateDotAndAdd(state.currentSelectedPoint);
+  }, [state.currentSelectedPoint, animateDotAndAdd]);
+  const handleStepFill = useCallback(async () => {
+    if (state.resampledData.length === 0) return;
+    dispatch({ type: "SET", payload: { interactionStep: 2 } });
+    let current = [...state.resampledData];
+    for (let i = current.length; i < 20; i++) {
+      const idx = Math.floor(Math.random() * pilotData.length);
+      const pt = pilotData[idx];
+      current = [...current, { ...pt, resampleIdx: current.length + 1 }];
+      dispatch({
+        type: "SET",
+        payload: {
+          resampledData: current,
+          highlightedPoints: [],
+          currentSelectedPoint: null
+        }
+      });
+      await new Promise((res) => setTimeout(res, i < 5 ? 100 : 50));
+      const el = resampleTableRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+    dispatch({ type: "SET", payload: { interactionStep: 3 } });
+  }, [state.resampledData, pilotData]);
+  const handlePage2Step1 = useCallback(() => {
+    const xs = state.resampledData.map((d) => d.biomarker);
+    const ys = state.resampledData.map((d) => d.lifespan);
+    const stats = slopeStats(xs, ys);
+    dispatch({
+      type: "SET",
+      payload: {
+        slopeValue: stats.slope,
+        interceptValue: stats.intercept,
+        seSlope: stats.seSlope,
+        ciLo: stats.ciLo,
+        ciHi: stats.ciHi,
+        halfWidth: stats.halfWidth,
+        page2Step: 1
+      }
+    });
+  }, [state.resampledData]);
+  const handlePage2Step2 = useCallback(() => {
+    const firstResult = {
+      idx: 1,
+      n: 20,
+      slope: state.slopeValue,
+      intercept: state.interceptValue,
+      ciLo: state.ciLo,
+      ciHi: state.ciHi,
+      // back-fill geometry now,
+      halfWidth: state.halfWidth,
+      // gated for display by showCI
+      showCI: false
+    };
+    dispatch({
+      type: "SET",
+      payload: { manyResults: [firstResult], page2Step: 2 }
+    });
+  }, [state.slopeValue, state.interceptValue, state.ciLo, state.ciHi, state.halfWidth]);
+  const handlePage2Step3 = useCallback(() => {
+    const updated = state.manyResults.map(
+      (r, i) => i === 0 ? { ...r, showCI: true } : r
+    );
+    dispatch({
+      type: "SET",
+      payload: { manyResults: updated, page2Step: 3 }
+    });
+  }, [state.manyResults]);
+  const handlePage2Step4 = useCallback(() => {
+    dispatch({ type: "SET", payload: { page2Step: 4 } });
+    let results = [...state.manyResults];
+    let i = results.length;
+    const step = () => {
+      if (i >= 100) {
+        dispatch({ type: "SET", payload: { manyResults: results } });
+        return;
+      }
+      const sample = resampleWithReplacement(pilotData, 20);
+      const xs = sample.map((d) => d.biomarker);
+      const ys = sample.map((d) => d.lifespan);
+      const s = slopeStats(xs, ys);
+      results.push({
+        idx: i + 1,
+        n: 20,
+        slope: s.slope,
+        intercept: s.intercept,
+        ciLo: s.ciLo,
+        ciHi: s.ciHi,
+        halfWidth: s.halfWidth,
+        showCI: true
+      });
+      i += 1;
+      dispatch({ type: "SET", payload: { manyResults: [...results] } });
+      setTimeout(step, 30);
+    };
+    setTimeout(step, 0);
+  }, [state.manyResults, pilotData]);
+  const handlePage2Step5 = useCallback(() => {
+    dispatch({
+      type: "SET",
+      payload: {
+        showSummary: true,
+        step2Completed: true,
+        page2Step: 5
+      }
+    });
+  }, []);
+  const handlePage3AddRow = useCallback(() => {
+    const halfWidths2 = state.manyResults.map((r) => r.halfWidth).filter((h) => isFinite(h));
+    const med = halfWidths2.length ? median(halfWidths2) : Infinity;
+    const total = state.manyResults.length;
+    dispatch({
+      type: "SET",
+      payload: {
+        precisionCurve: [{
+          n: 20,
+          medianHalfWidth: med,
+          totalResamples: total
+        }],
+        page3Step1Done: true,
+        currentDisplayN: 20
+      }
+    });
+  }, [state.manyResults]);
+  const [customNsInput, setCustomNsInput] = useState("");
+  const [isRunningCustomNs, setIsRunningCustomNs] = useState(false);
+  const parseCustomNs = useCallback((input) => {
+    const parts = input.split(/[\s,]+/).filter(Boolean);
+    const values = parts.map((p) => parseInt(p, 10)).filter((v) => !isNaN(v)).map((v) => clamp(v, 1, 1e3));
+    return Array.from(new Set(values));
+  }, []);
+  const handleRunCustomNs = useCallback(async () => {
+    const requested = parseCustomNs(customNsInput);
+    const existing = new Set(state.precisionCurve.map((p) => p.n));
+    const toRun = requested.filter((n) => !existing.has(n));
+    if (toRun.length === 0) return;
+    setIsRunningCustomNs(true);
+    let curve = [...state.precisionCurve];
+    for (const n of toRun) {
+      const halfWidths2 = [];
+      for (let i = 0; i < 100; i++) {
+        const sample = resampleWithReplacement(pilotData, n);
+        const xs = sample.map((d) => d.biomarker);
+        const ys = sample.map((d) => d.lifespan);
+        const s = slopeStats(xs, ys);
+        if (isFinite(s.halfWidth)) halfWidths2.push(s.halfWidth);
+      }
+      const med = halfWidths2.length ? median(halfWidths2) : Infinity;
+      curve = [...curve, {
+        n,
+        medianHalfWidth: med,
+        totalResamples: 100
+      }];
+      curve.sort((a, b) => a.n - b.n);
+      dispatch({
+        type: "SET",
+        payload: { precisionCurve: curve, currentDisplayN: n }
+      });
+      await new Promise((res) => setTimeout(res, 80));
+    }
+    setIsRunningCustomNs(false);
+  }, [customNsInput, parseCustomNs, state.precisionCurve, pilotData]);
+  const handlePrefill = useCallback(() => {
+    const defaults = [20, 50, 100, 200, 300, 500];
+    const existing = new Set(state.precisionCurve.map((p) => p.n));
+    const missing = defaults.filter((n) => !existing.has(n));
+    const combined = [...customNsInput.split(/[\s,]+/).filter(Boolean), ...missing.map(String)];
+    setCustomNsInput(Array.from(new Set(combined)).join(", "));
+  }, [customNsInput, state.precisionCurve]);
+  const handlePlotPrecisionCurve = useCallback(() => {
+    dispatch({ type: "SET", payload: { showPrecisionCurve: true } });
+  }, []);
+  const validateAnswer = useCallback((answerStr) => {
+    const trimmed = answerStr.trim();
+    if (!trimmed) return "invalid";
+    const val = parseFloat(trimmed);
+    if (isNaN(val)) return "invalid";
+    const curve = [...state.precisionCurve].sort((a, b) => a.n - b.n);
+    if (curve.length < 2) return "needMoreData";
+    let lowerBoundN = null;
+    for (let i = 0; i < curve.length; i++) {
+      const allAbove = curve.slice(0, i + 1).every((p) => p.medianHalfWidth > PRECISION_TARGET);
+      if (allAbove) lowerBoundN = curve[i].n;
+      else break;
+    }
+    let upperBoundN = null;
+    for (let i = curve.length - 1; i >= 0; i--) {
+      const allBelow = curve.slice(i).every((p) => p.medianHalfWidth <= PRECISION_TARGET);
+      if (allBelow) upperBoundN = curve[i].n;
+      else break;
+    }
+    if (lowerBoundN === null || upperBoundN === null) return "needMoreData";
+    if (val >= lowerBoundN && val <= upperBoundN) return "correct";
+    return "incorrect";
+  }, [state.precisionCurve]);
+  const handleSubmitAnswer = useCallback(() => {
+    const feedback = validateAnswer(state.userAnswer);
+    dispatch({ type: "SET", payload: { answerFeedback: feedback } });
+  }, [state.userAnswer, validateAnswer]);
+  const canProceedP1 = state.interactionStep === 3;
+  const canProceedP2 = state.step2Completed;
+  const canProceedP3 = state.answerFeedback === "correct";
+  const halfWidths = state.manyResults.map((r) => r.halfWidth).filter((h) => isFinite(h));
+  const medianHalfWidth = halfWidths.length ? median(halfWidths) : 0;
+  const totalCount = state.manyResults.length;
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("style", null, GLOBAL_CSS), /* @__PURE__ */ React.createElement(PageContainer, null, page === 1 && /* @__PURE__ */ React.createElement(
+    Page1,
+    {
+      pilotData,
+      axisRanges,
+      state,
+      handleStepSelect,
+      handleStepAdd,
+      handleStepFill,
+      pageAlert,
+      setPageAlert,
+      pilotChartRef,
+      resampleChartRef,
+      pilotTableRef,
+      resampleTableRef,
+      setPilotPointRef,
+      setResamplePointRef
+    }
+  ), page === 2 && /* @__PURE__ */ React.createElement(
+    Page2,
+    {
+      state,
+      pilotData,
+      axisRanges,
+      handlePage2Step1,
+      handlePage2Step2,
+      handlePage2Step3,
+      handlePage2Step4,
+      handlePage2Step5,
+      medianHalfWidth,
+      totalCount
+    }
+  ), page === 3 && /* @__PURE__ */ React.createElement(
+    Page3,
+    {
+      state,
+      dispatch,
+      medianHalfWidth,
+      totalCount,
+      handlePage3AddRow,
+      customNsInput,
+      setCustomNsInput,
+      handleRunCustomNs,
+      handlePrefill,
+      handlePlotPrecisionCurve,
+      handleSubmitAnswer,
+      isRunningCustomNs
+    }
+  ), page === 4 && /* @__PURE__ */ React.createElement(Page4, { onBack: () => setPage(3), onRestart: () => {
+    dispatch({ type: "RESET_PAGE1" });
+    setPage(1);
+  } })), /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      ref: animatedDotRef,
+      style: {
+        position: "fixed",
+        width: 16,
+        height: 16,
+        borderRadius: "50%",
+        background: COLORS.yellow,
+        border: `2px solid ${COLORS.orange}`,
+        pointerEvents: "none",
+        opacity: 0,
+        zIndex: 2e3,
+        left: 0,
+        top: 0
+      }
+    }
+  ), page !== 4 && /* @__PURE__ */ React.createElement(
+    NavigationFooter,
+    {
+      onReset: handleReset,
+      onPrevious: () => setPage((p) => Math.max(1, p - 1)),
+      onNext: () => setPage((p) => Math.min(4, p + 1)),
+      canGoNext: page === 1 && canProceedP1 || page === 2 && canProceedP2 || page === 3 && canProceedP3,
+      nextLabel: page === 3 ? "COMPLETE ACTIVITY" : "NEXT",
+      showPrevious: page > 1
+    }
+  ), page === 4 && /* @__PURE__ */ React.createElement(
+    NavigationFooter,
+    {
+      onReset: null,
+      onPrevious: () => setPage(3),
+      onNext: () => {
+      },
+      canGoNext: false,
+      nextLabel: "NEXT",
+      showPrevious: true
+    }
+  ));
+}
+function Page1({
+  pilotData,
+  axisRanges,
+  state,
+  handleStepSelect,
+  handleStepAdd,
+  handleStepFill,
+  pageAlert,
+  setPageAlert,
+  pilotChartRef,
+  resampleChartRef,
+  pilotTableRef,
+  resampleTableRef,
+  setPilotPointRef,
+  setResamplePointRef
+}) {
+  const { resampledData, highlightedPoints, interactionStep } = state;
+  const n = resampledData.length;
+  const isDone = interactionStep === 3;
+  const isFirstPoint = n === 0;
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(InstructionCard, { title: /* @__PURE__ */ React.createElement(React.Fragment, null, "Create a bootstrap resample of size ", /* @__PURE__ */ React.createElement("em", null, "n"), " = 20.") }, "Use the buttons to select 20 random points (with replacement) from the pilot data."), pageAlert && /* @__PURE__ */ React.createElement(InlineAlert, { kind: "info", onClose: () => setPageAlert(null) }, pageAlert), isDone && /* @__PURE__ */ React.createElement(InlineAlert, { kind: "success" }, "Resample created. Click ", /* @__PURE__ */ React.createElement("strong", null, "NEXT"), " to proceed."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 16, alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("aside", { style: {
+    width: 220,
+    flex: "0 0 220px",
+    background: COLORS.white,
+    border: `1px solid ${COLORS.intLightGray}`,
+    borderRadius: 12,
+    padding: 12
+  } }, /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.sectionTitle, marginBottom: 12 } }, "Steps"), isFirstPoint ? /* @__PURE__ */ React.createElement(
+    StepButton,
+    {
+      number: 1,
+      label: "Select a random point from the pilot data",
+      active: interactionStep === 0,
+      disabled: interactionStep !== 0 || isDone,
+      onClick: handleStepSelect
+    }
+  ) : /* @__PURE__ */ React.createElement(
+    StepButton,
+    {
+      number: 1,
+      label: "Select a random point from the pilot data",
+      active: interactionStep === 0 && !isDone,
+      disabled: interactionStep !== 0 || isDone,
+      onClick: handleStepSelect
+    }
+  ), /* @__PURE__ */ React.createElement(
+    StepButton,
+    {
+      number: 2,
+      label: "Add point to bootstrap resample",
+      active: interactionStep === 1,
+      disabled: interactionStep !== 1 || isDone,
+      onClick: handleStepAdd
+    }
+  ), /* @__PURE__ */ React.createElement(
+    StepButton,
+    {
+      number: 3,
+      label: /* @__PURE__ */ React.createElement(React.Fragment, null, "Repeat to ", /* @__PURE__ */ React.createElement("em", null, "n"), " = 20"),
+      active: !isFirstPoint && interactionStep === 0 && !isDone,
+      disabled: isFirstPoint || interactionStep !== 0 || isDone,
+      onClick: handleStepFill
+    }
+  )), /* @__PURE__ */ React.createElement("section", { style: {
+    flex: 1,
+    background: COLORS.white,
+    border: `1px solid ${COLORS.darkGray}`,
+    borderRadius: 12,
+    padding: 16,
+    boxShadow: "0 2px 6px rgba(0,0,0,0.06)"
+  } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 120px", gap: 12 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: TEXT.sectionTitle }, "Pilot Data (", /* @__PURE__ */ React.createElement("em", null, "n"), " = 20)"), /* @__PURE__ */ React.createElement("div", { ref: pilotChartRef, style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(
+    ScatterChart,
+    {
+      data: pilotData,
+      xRange: axisRanges.x,
+      yRange: axisRanges.y,
+      highlightIds: highlightedPoints,
+      pointRefsCb: setPilotPointRef,
+      onClickChart: () => {
+        if (interactionStep === 0 && !isDone) {
+          setPageAlert('Click "Select a random point from the pilot data" to choose a point.');
+          setTimeout(() => setPageAlert(null), 3e3);
+        }
+      }
+    }
+  )), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(
+    BiomarkerTable,
+    {
+      data: pilotData,
+      highlightIds: highlightedPoints,
+      scrollRef: pilotTableRef
+    }
+  ))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: TEXT.sectionTitle }, "Bootstrap Resample (", /* @__PURE__ */ React.createElement("em", null, "n"), " = ", n, ")"), /* @__PURE__ */ React.createElement("div", { ref: resampleChartRef, style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(
+    ScatterChart,
+    {
+      data: resampledData,
+      xRange: axisRanges.x,
+      yRange: axisRanges.y,
+      showConcentric: true,
+      pointRefsCb: setResamplePointRef
+    }
+  )), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(
+    BiomarkerTable,
+    {
+      data: resampledData,
+      showOrigIndex: true,
+      fillTo: 20,
+      newestId: resampledData.length > 0 ? resampledData[resampledData.length - 1].id : null,
+      scrollRef: resampleTableRef
+    }
+  ))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: TEXT.sectionTitle }, "Legend"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(ConcentricLegend, null)))))));
+}
+function Page2({
+  state,
+  pilotData,
+  axisRanges,
+  handlePage2Step1,
+  handlePage2Step2,
+  handlePage2Step3,
+  handlePage2Step4,
+  handlePage2Step5,
+  medianHalfWidth,
+  totalCount
+}) {
+  const {
+    page2Step,
+    resampledData,
+    slopeValue,
+    interceptValue,
+    seSlope,
+    ciLo,
+    ciHi,
+    halfWidth,
+    manyResults,
+    showSummary
+  } = state;
+  const showFit = page2Step >= 1;
+  const showCI = page2Step >= 1;
+  const statsCardRef = useRef(null);
+  const firstBarRef = useRef(null);
+  const [flyClone, setFlyClone] = useState(null);
+  const flyTriggered = useRef(false);
+  useEffect(() => {
+    if (page2Step !== 2) {
+      flyTriggered.current = false;
+      return;
+    }
+    if (flyTriggered.current) return;
+    if (!statsCardRef.current || !firstBarRef.current) return;
+    if (manyResults.length < 1) return;
+    flyTriggered.current = true;
+    const cardBox = statsCardRef.current.getBoundingClientRect();
+    const barBox = firstBarRef.current.getBoundingClientRect();
+    setFlyClone({
+      from: { x: cardBox.left, y: cardBox.top, w: cardBox.width, h: cardBox.height },
+      to: {
+        x: barBox.left + barBox.width / 2 - cardBox.width / 2,
+        y: barBox.top - cardBox.height / 4
+      },
+      phase: "start"
+    });
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setFlyClone((fc) => fc ? { ...fc, phase: "end" } : null);
+      });
+    });
+    const t = setTimeout(() => setFlyClone(null), 900);
+    return () => clearTimeout(t);
+  }, [page2Step, manyResults.length]);
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(InstructionCard, { title: /* @__PURE__ */ React.createElement(React.Fragment, null, "Estimate Precision at ", /* @__PURE__ */ React.createElement("em", null, "n"), " = 20") }, "Use the buttons to fit a regression and compute its 95% CI on the slope for your resample, then repeat 100 times in total."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 16, alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("aside", { style: {
+    width: 240,
+    flex: "0 0 240px",
+    background: COLORS.white,
+    border: `1px solid ${COLORS.intLightGray}`,
+    borderRadius: 12,
+    padding: 12
+  } }, /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.sectionTitle, marginBottom: 12 } }, "Steps"), /* @__PURE__ */ React.createElement(
+    StepButton,
+    {
+      number: 1,
+      label: "Fit Regression and Compute 95% CI",
+      active: page2Step === 0,
+      disabled: page2Step !== 0,
+      onClick: handlePage2Step1
+    }
+  ), /* @__PURE__ */ React.createElement(
+    StepButton,
+    {
+      number: 2,
+      label: "Plot Point Estimate of Slope",
+      active: page2Step === 1,
+      disabled: page2Step !== 1,
+      onClick: handlePage2Step2
+    }
+  ), /* @__PURE__ */ React.createElement(
+    StepButton,
+    {
+      number: 3,
+      label: "Plot CI of Slope",
+      active: page2Step === 2,
+      disabled: page2Step !== 2,
+      onClick: handlePage2Step3
+    }
+  ), /* @__PURE__ */ React.createElement(
+    StepButton,
+    {
+      number: 4,
+      label: "Generate 99 More Resamples",
+      active: page2Step === 3,
+      disabled: page2Step !== 3,
+      onClick: handlePage2Step4
+    }
+  ), /* @__PURE__ */ React.createElement(
+    StepButton,
+    {
+      number: 5,
+      label: "Compute Precision of Slope Estimate",
+      active: page2Step === 4 && manyResults.length >= 100,
+      disabled: !(page2Step === 4 && manyResults.length >= 100),
+      onClick: handlePage2Step5
+    }
+  )), /* @__PURE__ */ React.createElement("section", { style: {
+    flex: 1,
+    minWidth: 0,
+    background: COLORS.white,
+    border: `1px solid ${COLORS.darkGray}`,
+    borderRadius: 12,
+    padding: 16,
+    boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 16
+  } }, /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(260px, 340px)", gap: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: TEXT.sectionTitle }, "Bootstrap Resample (", /* @__PURE__ */ React.createElement("em", null, "n"), " = 20)"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, maxWidth: 360 } }, /* @__PURE__ */ React.createElement(
+    ResampleScatterWithFit,
+    {
+      data: resampledData,
+      xRange: axisRanges.x,
+      yRange: axisRanges.y,
+      showFit,
+      slope: slopeValue,
+      intercept: interceptValue
+    }
+  ))), /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      ref: statsCardRef,
+      style: {
+        border: `1px solid ${COLORS.intLightGray}`,
+        borderRadius: 12,
+        padding: 16,
+        background: COLORS.white,
+        alignSelf: "start"
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.sectionTitle, marginBottom: 10, textAlign: "left" } }, "Resample Stats"),
+    /* @__PURE__ */ React.createElement(
+      StatsPanel,
+      {
+        slope: slopeValue,
+        intercept: interceptValue,
+        ciLo,
+        ciHi,
+        halfWidth,
+        showFit,
+        showCI
+      }
+    )
+  )), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px solid ${COLORS.intLightGray}` } }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+    marginBottom: 8
+  } }, /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.sectionTitle, textAlign: "left" } }, "Slope Estimates with 95% CI"), /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.caption } }, /* @__PURE__ */ React.createElement("strong", { style: { color: COLORS.black } }, manyResults.length), " / 100 completed")), /* @__PURE__ */ React.createElement(ForestPanel, { results: manyResults, firstBarRef })), showSummary && /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      className: "precision-reveal",
+      style: {
+        border: `1px solid ${COLORS.intLightGray}`,
+        borderRadius: 12,
+        padding: 16,
+        background: COLORS.white
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.sectionTitle, marginBottom: 10, textAlign: "left" } }, "Estimated Precision"),
+    /* @__PURE__ */ React.createElement("div", { style: { fontFamily: MONO_STACK, fontSize: 14, color: COLORS.darkGray, lineHeight: 1.7 } }, /* @__PURE__ */ React.createElement("div", null, "Sample size (n): ", /* @__PURE__ */ React.createElement("strong", null, "20")), /* @__PURE__ */ React.createElement("div", null, "Median half-width: ", /* @__PURE__ */ React.createElement("strong", { style: { color: COLORS.purple, fontSize: 16 } }, "\xB1", medianHalfWidth.toFixed(2), " yr")))
+  ))), flyClone && /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      style: {
+        position: "fixed",
+        left: flyClone.phase === "end" ? flyClone.to.x : flyClone.from.x,
+        top: flyClone.phase === "end" ? flyClone.to.y : flyClone.from.y,
+        width: flyClone.from.w,
+        height: flyClone.from.h,
+        transform: flyClone.phase === "end" ? "scale(0.35)" : "scale(1)",
+        transformOrigin: "top left",
+        opacity: flyClone.phase === "end" ? 0 : 1,
+        transition: "left 700ms cubic-bezier(0.45, 0, 0.55, 1), top 700ms cubic-bezier(0.45, 0, 0.55, 1), transform 700ms cubic-bezier(0.45, 0, 0.55, 1), opacity 700ms ease-in",
+        pointerEvents: "none",
+        zIndex: 3e3,
+        background: COLORS.white,
+        border: `1px solid ${COLORS.purple}`,
+        borderRadius: 12,
+        padding: 16,
+        boxShadow: "0 4px 16px rgba(111,0,255,0.25)"
+      }
+    },
+    /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.sectionTitle, marginBottom: 10, textAlign: "left" } }, "Resample Stats"),
+    /* @__PURE__ */ React.createElement(
+      StatsPanel,
+      {
+        slope: slopeValue,
+        intercept: interceptValue,
+        ciLo,
+        ciHi,
+        halfWidth,
+        showFit: true,
+        showCI: true
+      }
+    )
+  ));
+}
+function ResampleScatterWithFit({
+  data,
+  xRange,
+  yRange,
+  showFit,
+  slope,
+  intercept
+}) {
+  const wrapRef = useRef(null);
+  const [size, setSize] = useState({ w: 400, h: 267 });
+  useEffect(() => {
+    if (!wrapRef.current) return;
+    const el = wrapRef.current;
+    const update = () => {
+      const w = el.clientWidth || 400;
+      setSize({ w, h: w / 1.5 });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const margin = { t: 5, r: 2, b: 40, l: 46 };
+  const iw = size.w - margin.l - margin.r;
+  const ih = size.h - margin.t - margin.b;
+  const dupCounts = useMemo(() => {
+    const m = /* @__PURE__ */ new Map();
+    data.forEach((d) => {
+      m.set(d.id, (m.get(d.id) || 0) + 1);
+    });
+    return m;
+  }, [data]);
+  const uniq = useMemo(() => {
+    const seen = /* @__PURE__ */ new Set();
+    return data.filter((d) => {
+      if (seen.has(d.id)) return false;
+      seen.add(d.id);
+      return true;
+    });
+  }, [data]);
+  const xPos = (v) => margin.l + (v - xRange.min) / (xRange.max - xRange.min) * iw;
+  const yPos = (v) => margin.t + ih - (v - yRange.min) / (yRange.max - yRange.min) * ih;
+  const yTickVals = Array.from(
+    { length: 5 },
+    (_, i) => yRange.min + i * (yRange.max - yRange.min) / 4
+  );
+  const xTickVals = [-2, -1, 0, 1, 2];
+  const n = data.length;
+  let mx = 0, my = 0;
+  if (n > 0) {
+    for (const d of data) {
+      mx += d.biomarker;
+      my += d.lifespan;
+    }
+    mx /= n;
+    my /= n;
+  }
+  const renderLine = (m) => {
+    const yAtMin = my + m * (xRange.min - mx);
+    const yAtMax = my + m * (xRange.max - mx);
+    return { x1: xPos(xRange.min), y1: yPos(yAtMin), x2: xPos(xRange.max), y2: yPos(yAtMax) };
+  };
+  return /* @__PURE__ */ React.createElement("div", { ref: wrapRef, style: { width: "100%", userSelect: "none" } }, /* @__PURE__ */ React.createElement(
+    "svg",
+    {
+      viewBox: `0 0 ${size.w} ${size.h}`,
+      width: "100%",
+      height: size.h,
+      style: { background: COLORS.white, display: "block" }
+    },
+    xTickVals.map((v, i) => /* @__PURE__ */ React.createElement("line", { key: `xg${i}`, x1: xPos(v), y1: margin.t, x2: xPos(v), y2: margin.t + ih, stroke: COLORS.intLightGray })),
+    yTickVals.map((v, i) => /* @__PURE__ */ React.createElement("line", { key: `yg${i}`, x1: margin.l, y1: yPos(v), x2: margin.l + iw, y2: yPos(v), stroke: COLORS.intLightGray })),
+    xTickVals.map((v, i) => /* @__PURE__ */ React.createElement(
+      "text",
+      {
+        key: `xt${i}`,
+        x: xPos(v),
+        y: margin.t + ih + 16,
+        textAnchor: "middle",
+        fontFamily: MONO_STACK,
+        fontSize: "11",
+        fill: COLORS.darkGray
+      },
+      v
+    )),
+    yTickVals.map((v, i) => /* @__PURE__ */ React.createElement(
+      "text",
+      {
+        key: `yt${i}`,
+        x: margin.l - 6,
+        y: yPos(v) + 4,
+        textAnchor: "end",
+        fontFamily: MONO_STACK,
+        fontSize: "11",
+        fill: COLORS.darkGray
+      },
+      Math.round(v)
+    )),
+    /* @__PURE__ */ React.createElement(
+      "text",
+      {
+        x: margin.l + iw / 2,
+        y: size.h - 4,
+        textAnchor: "middle",
+        fontFamily: MONO_STACK,
+        fontSize: "12",
+        fill: COLORS.darkGray
+      },
+      "Biomarker"
+    ),
+    /* @__PURE__ */ React.createElement(
+      "text",
+      {
+        x: 12,
+        y: margin.t + ih / 2,
+        textAnchor: "middle",
+        fontFamily: MONO_STACK,
+        fontSize: "12",
+        fill: COLORS.darkGray,
+        transform: `rotate(-90,12,${margin.t + ih / 2})`
+      },
+      "Lifespan (yrs)"
+    ),
+    showFit && slope !== null && intercept !== null && (() => {
+      const line = renderLine(slope);
+      return /* @__PURE__ */ React.createElement("line", { ...line, stroke: COLORS.purple, strokeWidth: "2.5", strokeLinecap: "round" });
+    })(),
+    uniq.map((d) => {
+      const cx = xPos(d.biomarker);
+      const cy = yPos(d.lifespan);
+      const dupN = dupCounts.get(d.id) || 1;
+      return /* @__PURE__ */ React.createElement("g", { key: `p-${d.id}` }, dupN > 1 && Array.from({ length: dupN - 1 }).map((_, k) => /* @__PURE__ */ React.createElement(
+        "circle",
+        {
+          key: `r${k}`,
+          cx,
+          cy,
+          r: 5.5 + k * 2.5,
+          fill: "none",
+          stroke: COLORS.purple,
+          strokeWidth: "2",
+          opacity: 0.8 - k * 0.1
+        }
+      )), /* @__PURE__ */ React.createElement("circle", { cx, cy, r: 4, fill: COLORS.black }));
+    })
+  ));
+}
+function StatsPanel({ slope, intercept, ciLo, ciHi, halfWidth, showFit, showCI }) {
+  const mono = { fontFamily: MONO_STACK, fontSize: 13, color: COLORS.darkGray, lineHeight: 1.7 };
+  return /* @__PURE__ */ React.createElement("div", { style: mono }, /* @__PURE__ */ React.createElement("div", null, "Intercept: ", /* @__PURE__ */ React.createElement("strong", null, showFit && intercept !== null ? `${intercept.toFixed(2)} yr` : "\u2014")), /* @__PURE__ */ React.createElement("div", null, "Slope (m): ", /* @__PURE__ */ React.createElement("strong", { style: { color: showFit ? COLORS.black : COLORS.midGray } }, showFit && slope !== null ? `${slope.toFixed(2)} yr/unit` : "\u2014")), /* @__PURE__ */ React.createElement("div", { style: { borderTop: `1px dashed ${COLORS.intLightGray}`, margin: "8px 0" } }), /* @__PURE__ */ React.createElement("div", null, "95% CI: ", /* @__PURE__ */ React.createElement("strong", null, showCI && ciLo !== null && ciHi !== null ? `[${ciLo.toFixed(2)}, ${ciHi.toFixed(2)}]` : "\u2014")), /* @__PURE__ */ React.createElement("div", null, "Half-width: ", /* @__PURE__ */ React.createElement("strong", { style: { color: showCI ? COLORS.purple : COLORS.midGray } }, showCI && halfWidth !== null ? `\xB1${halfWidth.toFixed(2)} yr` : "\u2014")));
+}
+function Page3({
+  state,
+  dispatch,
+  medianHalfWidth,
+  totalCount,
+  handlePage3AddRow,
+  customNsInput,
+  setCustomNsInput,
+  handleRunCustomNs,
+  handlePrefill,
+  handlePlotPrecisionCurve,
+  handleSubmitAnswer,
+  isRunningCustomNs
+}) {
+  const {
+    precisionCurve,
+    showPrecisionCurve,
+    userAnswer,
+    answerFeedback,
+    page3Step1Done,
+    currentDisplayN,
+    manyResults
+  } = state;
+  const tableScrollRef = useRef(null);
+  useEffect(() => {
+    const el = tableScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [precisionCurve.length]);
+  const syntheticN20Row = useMemo(() => {
+    if (!manyResults || manyResults.length === 0) return null;
+    const halfWidths = manyResults.map((r) => r.halfWidth).filter((h) => isFinite(h));
+    if (halfWidths.length === 0) return null;
+    const sorted = [...halfWidths].sort((a, b) => a - b);
+    const med = sorted.length % 2 === 1 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+    return { n: 20, medianHalfWidth: med };
+  }, [manyResults]);
+  const currentRow = precisionCurve.find((p) => p.n === currentDisplayN) || precisionCurve[precisionCurve.length - 1] || syntheticN20Row;
+  return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(InstructionCard, { title: "Build a Precision Curve" }, "Test a range of sample sizes to estimate how precision improves with n. Then find the sample size needed to reach a 95% CI of approximately \xB1", PRECISION_TARGET, " year on the slope."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 16, alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("aside", { style: {
+    width: 220,
+    flex: "0 0 220px",
+    background: COLORS.white,
+    border: `1px solid ${COLORS.intLightGray}`,
+    borderRadius: 12,
+    padding: 12
+  } }, /* @__PURE__ */ React.createElement("div", { style: {
+    border: `1px solid ${COLORS.intLightGray}`,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+    background: COLORS.lightGray,
+    fontFamily: MONO_STACK,
+    fontSize: 12,
+    color: COLORS.darkGray,
+    lineHeight: 1.5
+  } }, /* @__PURE__ */ React.createElement("div", { style: { fontWeight: 700, color: COLORS.black, marginBottom: 4 } }, "Estimated Precision"), currentRow ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", null, "Sample size (n): ", /* @__PURE__ */ React.createElement("strong", null, currentRow.n)), /* @__PURE__ */ React.createElement("div", null, "Median half-width: ", /* @__PURE__ */ React.createElement("strong", { style: { color: COLORS.purple } }, "\xB1", isFinite(currentRow.medianHalfWidth) ? currentRow.medianHalfWidth.toFixed(2) : "\u221E", " yr"))) : /* @__PURE__ */ React.createElement("div", { style: { color: COLORS.midGray, fontStyle: "italic" } }, "No data yet")), /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.sectionTitle, marginBottom: 10 } }, "Steps"), /* @__PURE__ */ React.createElement(
+    StepButton,
+    {
+      number: 1,
+      label: "Add to Table",
+      active: !page3Step1Done,
+      disabled: page3Step1Done,
+      onClick: handlePage3AddRow
+    }
+  ), /* @__PURE__ */ React.createElement("div", { style: {
+    border: `1px solid ${COLORS.intLightGray}`,
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 10,
+    marginBottom: 10
+  } }, /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.compact, fontWeight: 700, marginBottom: 6 } }, "Step 2 \u2014 Custom sizes"), /* @__PURE__ */ React.createElement(
+    "input",
+    {
+      type: "text",
+      value: customNsInput,
+      onChange: (e) => setCustomNsInput(e.target.value),
+      placeholder: "e.g. 30, 50, 100",
+      disabled: isRunningCustomNs,
+      style: {
+        width: "100%",
+        padding: "6px 8px",
+        borderRadius: 6,
+        border: `1px solid ${COLORS.intLightGray}`,
+        fontFamily: MONO_STACK,
+        fontSize: 12,
+        marginBottom: 6
+      }
+    }
+  ), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+    StyledButton,
+    {
+      variant: "outlined",
+      onClick: handlePrefill,
+      disabled: isRunningCustomNs,
+      style: { padding: "6px 10px", fontSize: 10 }
+    },
+    "Prefill"
+  ), /* @__PURE__ */ React.createElement(
+    StyledButton,
+    {
+      variant: "primary",
+      onClick: handleRunCustomNs,
+      disabled: isRunningCustomNs || !customNsInput.trim() || !page3Step1Done,
+      style: { padding: "6px 10px", fontSize: 10 },
+      title: !page3Step1Done ? 'Click "Add to Table" first' : void 0
+    },
+    isRunningCustomNs ? "Running\u2026" : "Run Resampling"
+  )), /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.caption, marginTop: 6, color: COLORS.midGray } }, "Comma or space separated. Range 1\u20131000.")), showPrecisionCurve && /* @__PURE__ */ React.createElement("div", { style: {
+    background: COLORS.yellowFade,
+    border: `2px solid ${COLORS.yellow}`,
+    borderRadius: 8,
+    padding: 10
+  } }, /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.compact, fontWeight: 700, marginBottom: 6 } }, "Step 3 \u2014 Your answer"), /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.compact, marginBottom: 8 } }, "Based on the precision curve, what sample size would give a 95% CI of approximately ", /* @__PURE__ */ React.createElement("strong", null, "\xB1", PRECISION_TARGET, " year"), " on the slope?"), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 6, alignItems: "center" } }, /* @__PURE__ */ React.createElement(
+    "input",
+    {
+      type: "text",
+      value: userAnswer,
+      onChange: (e) => dispatch({ type: "SET", payload: { userAnswer: e.target.value, answerFeedback: null } }),
+      disabled: answerFeedback === "correct",
+      placeholder: "n = ?",
+      style: {
+        flex: 1,
+        padding: "6px 8px",
+        borderRadius: 6,
+        border: `1px solid ${COLORS.intLightGray}`,
+        fontFamily: MONO_STACK,
+        fontSize: 13
+      }
+    }
+  )), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", justifyContent: "flex-end", marginTop: 8 } }, /* @__PURE__ */ React.createElement(
+    StyledButton,
+    {
+      variant: "primary",
+      onClick: handleSubmitAnswer,
+      disabled: !userAnswer.trim() || answerFeedback === "correct",
+      style: { padding: "6px 12px", fontSize: 11 }
+    },
+    "Submit"
+  )), answerFeedback === "correct" && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, ...TEXT.compact, color: COLORS.green, fontWeight: 700 } }, "\u2713 Correct! You can now complete the activity."), answerFeedback === "incorrect" && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, ...TEXT.compact, color: COLORS.orange } }, "Not quite. Look at where the curve crosses \xB1", PRECISION_TARGET, " yr."), answerFeedback === "invalid" && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, ...TEXT.compact, color: COLORS.orange } }, "Please enter a numeric value."), answerFeedback === "needMoreData" && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, ...TEXT.compact, color: COLORS.orange } }, "Add more sample sizes that span the \xB1", PRECISION_TARGET, " yr threshold."))), /* @__PURE__ */ React.createElement("section", { style: {
+    flex: 1,
+    background: COLORS.white,
+    border: `1px solid ${COLORS.darkGray}`,
+    borderRadius: 12,
+    padding: 16,
+    boxShadow: "0 2px 6px rgba(0,0,0,0.06)"
+  } }, /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.sectionTitle, marginBottom: 8 } }, "Precision Data"), /* @__PURE__ */ React.createElement(
+    "div",
+    {
+      ref: tableScrollRef,
+      className: "table-scroll",
+      style: {
+        height: 370,
+        overflowY: "auto",
+        border: `1px solid ${COLORS.intLightGray}`,
+        borderRadius: 8
+      }
+    },
+    /* @__PURE__ */ React.createElement("table", { style: { width: "100%", borderCollapse: "collapse", fontFamily: MONO_STACK, fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { padding: 10, textAlign: "left", background: COLORS.lightGray, position: "sticky", top: 0, borderBottom: `1px solid ${COLORS.intLightGray}` } }, "n"), /* @__PURE__ */ React.createElement("th", { style: { padding: 10, textAlign: "right", background: COLORS.lightGray, position: "sticky", top: 0, borderBottom: `1px solid ${COLORS.intLightGray}` } }, "Median half-width (yr)"))), /* @__PURE__ */ React.createElement("tbody", null, precisionCurve.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 2, style: { padding: 24, textAlign: "center", color: COLORS.midGray, fontStyle: "italic" } }, 'Click "Add to Table" to insert the n=20 result.')), precisionCurve.map((row, i) => /* @__PURE__ */ React.createElement(
+      "tr",
+      {
+        key: `${row.n}-${i}`,
+        className: i === precisionCurve.length - 1 ? "row-fade-in" : "",
+        style: { borderBottom: `1px solid ${COLORS.intLightGray}` }
+      },
+      /* @__PURE__ */ React.createElement("td", { style: { padding: 10 } }, row.n),
+      /* @__PURE__ */ React.createElement("td", { style: { padding: 10, textAlign: "right", color: COLORS.purple, fontWeight: 700 } }, "\xB1", isFinite(row.medianHalfWidth) ? row.medianHalfWidth.toFixed(2) : "\u221E")
+    ))))
+  ), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, display: "flex", justifyContent: "flex-end" } }, /* @__PURE__ */ React.createElement(
+    StyledButton,
+    {
+      variant: "primary",
+      onClick: handlePlotPrecisionCurve,
+      disabled: precisionCurve.length === 0
+    },
+    "Plot Estimated Precision"
+  )), showPrecisionCurve && precisionCurve.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16, display: "flex", justifyContent: "center" } }, /* @__PURE__ */ React.createElement(PrecisionCurve, { data: precisionCurve })))));
+}
+function Page4({ onBack, onRestart }) {
+  return /* @__PURE__ */ React.createElement("div", { style: {
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    minHeight: "calc(100vh - 160px)"
+  } }, /* @__PURE__ */ React.createElement("div", { style: {
+    background: COLORS.white,
+    border: `1px solid ${COLORS.intLightGray}`,
+    borderRadius: 16,
+    padding: 40,
+    maxWidth: 640,
+    textAlign: "center",
+    boxShadow: "0 6px 24px rgba(0,0,0,0.08)"
+  } }, /* @__PURE__ */ React.createElement("div", { style: {
+    fontSize: "2.2rem",
+    fontWeight: 700,
+    color: COLORS.purple,
+    marginBottom: 8
+  } }, "\u{1F389} Congratulations!"), /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.body, fontSize: 16, marginBottom: 8, color: COLORS.darkGray } }, "Activity complete: ", /* @__PURE__ */ React.createElement("strong", null, "Bootstrap Precision Analysis")), /* @__PURE__ */ React.createElement("div", { style: { ...TEXT.body, marginBottom: 24 } }, "You successfully learned how to create bootstrap resamples, estimate the precision of an effect-size estimate through repeated sampling, and build a precision curve to determine the sample size needed to pin down the slope to within a target confidence interval."), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 12, justifyContent: "center" } }, /* @__PURE__ */ React.createElement(StyledButton, { variant: "outlined", onClick: onBack, uppercase: true }, "Back"), /* @__PURE__ */ React.createElement(StyledButton, { variant: "secondary", onClick: () => {
+  }, uppercase: true }, "Home"), /* @__PURE__ */ React.createElement(StyledButton, { variant: "primary", onClick: onRestart, uppercase: true }, "Restart"))));
+}
+const __root = ReactDOM.createRoot(document.getElementById("root"));
+__root.render(React.createElement(BootstrapPrecisionActivity));
+
+  </script>
+</body>
+</html>
