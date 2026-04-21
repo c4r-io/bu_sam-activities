@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Biomarker Activity</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #F3F3F3; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef } = React;
+
+
+
+
+// ─── Color constants ───────────────────────────────────────────────────────────
+const C = {
+  accent: '#6F00FF',
+  accentLight: 'rgba(111,0,255,0.08)',
+  black: '#202020',
+  dark: '#333132',
+  mid: '#999999',
+  border: '#E0E0E0',
+  lightGray: '#F3F3F3',
+  white: '#FFFFFF',
+  blue: '#0082FF',
+  blueBg: '#F0F4FF',
+  successBg: '#F0FFF4',
+  successBorder: '#38A169',
+  warningBg: '#FFF8F0',
+  warningBorder: '#E07000',
+};
+
+// ─── Screen flow ──────────────────────────────────────────────────────────────
+// 1: Screen 1 (scatterplot + predict/justify/confidence)
+// 2: Feedback 1
+// 3: Screen 2 (regression + conclude/justify)
+// 4: Feedback 2
+// 5: Screen 3 (regression + multiselect)
+// 6: Feedback 3
+// 7: Final results
+// 8: Congrats (excluded from progress count)
+const TOTAL_SCREENS = 7;
+
+// ─── Simulated dataset ────────────────────────────────────────────────────────
+// X ~ Normal(0,1) clamped ±2, Y = 0.9*X + Normal(0,10) + 73
+function generateData() {
+  let s = 42;
+  function rand() {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    return (s >>> 0) / 0xffffffff;
+  }
+  function randn() {
+    const u = rand(), v = rand();
+    return Math.sqrt(-2 * Math.log(u + 1e-10)) * Math.cos(2 * Math.PI * v);
+  }
+  const data = [];
+  for (let i = 0; i < 100; i++) {
+    const x = Math.max(-2, Math.min(2, randn()));
+    const noise = randn() * 10;
+    const y = 0.9 * x + noise + 73;
+    data.push({ x: parseFloat(x.toFixed(3)), y: parseFloat(y.toFixed(1)) });
+  }
+  return data;
+}
+
+const DATA = generateData();
+
+// ─── Regression helpers ───────────────────────────────────────────────────────
+function linearRegression(data) {
+  const n = data.length;
+  const sumX = data.reduce((a, d) => a + d.x, 0);
+  const sumY = data.reduce((a, d) => a + d.y, 0);
+  const sumXY = data.reduce((a, d) => a + d.x * d.y, 0);
+  const sumX2 = data.reduce((a, d) => a + d.x * d.x, 0);
+  const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+  const intercept = (sumY - slope * sumX) / n;
+  return { slope, intercept };
+}
+
+function computeCI(data, xVals) {
+  const n = data.length;
+  const { slope, intercept } = linearRegression(data);
+  const meanX = data.reduce((a, d) => a + d.x, 0) / n;
+  const residuals = data.map(d => d.y - (slope * d.x + intercept));
+  const sse = residuals.reduce((a, r) => a + r * r, 0);
+  const se = Math.sqrt(sse / (n - 2));
+  const sxx = data.reduce((a, d) => a + (d.x - meanX) ** 2, 0);
+  const t95 = 1.984;
+  return xVals.map(x => {
+    const yHat = slope * x + intercept;
+    const margin = t95 * se * Math.sqrt(1 / n + (x - meanX) ** 2 / sxx);
+    return { x, yHat, upper: yHat + margin, lower: yHat - margin };
+  });
+}
+
+// ─── Tailored feedback for Screen 1 ──────────────────────────────────────────
+const S1_FEEDBACK = {
+  'Yes|Not confident': 'A visible upward trend suggests a possible effect, and the scatterplot is so widely distributed that a confident conclusion in either direction would be premature. Keep in mind this makes it difficult to distinguish a real signal from noise. Therefore, caution is warranted before drawing any conclusions.',
+  'Yes|Somewhat confident': 'A visible upward trend suggests a possible effect. However, the scatterplot is so widely distributed that it is difficult to distinguish real signal from noise. Therefore, caution is warranted before drawing any conclusions.',
+  'Yes|Very confident': 'A visible upward trend suggests a possible effect. However, the scatterplot is so widely distributed that it is difficult to distinguish real signal from noise. Ruling out a relationship with high confidence goes further than this data supports.',
+  'No|Not confident': "Skepticism is reasonable given the wide distribution of this scatterplot, and a confident conclusion in either direction would be premature. Keep in mind however that the absence of an obvious visual pattern doesn't rule out the presence of a true effect.",
+  'No|Somewhat confident': "Skepticism is reasonable given the wide distribution of this scatterplot. Keep in mind however that the absence of an obvious visual pattern doesn't rule out the presence of a true effect.",
+  'No|Very confident': "Skepticism is reasonable given the wide distribution of this scatterplot. Keep in mind however that the absence of an obvious visual pattern doesn't rule out the presence of a true effect. Ruling out a relationship with high confidence goes further than this data supports.",
+  'Impossible to tell|Not confident': "This is an accurate read of the data! The scatterplot is so widely distributed that a confident conclusion in either direction would be premature. A feeling of uncertainty is common when working with real datasets.",
+  'Impossible to tell|Somewhat confident': "This is an accurate read of the data! The scatterplot is so widely distributed that a confident conclusion in either direction would be premature. This observation reflects good judgment about what a scatterplot can and can't tell you.",
+  'Impossible to tell|Very confident': "This is an accurate read of the data! The scatterplot is so widely distributed that neither a yes nor a no is justified. Being confident in that uncertainty is precisely the kind of reasoning this dataset calls for.",
+};
+
+// ─── Checkbox feedback ────────────────────────────────────────────────────────
+const OPTION_FEEDBACK = {
+  'A larger sample of data points': 'Collecting more data points (i.e. a bigger N) will make it easier to detect an effect by reducing the influence of chance on the result. Especially if the effect is smaller than we thought, a larger sample can decrease the risk of missing it. More data points may narrow the confidence interval, allowing us to firmly reject (or fail to reject) the null hypothesis if a relationship exists.',
+  'A steeper regression line': 'If this data had a steeper slope, it would suggest that changes in Protein X expression are associated with larger differences in lifespan. A stronger relationship would be easier to distinguish from random variation. Importantly, the slope must be steeper than the standard error, otherwise we cannot reject the null hypothesis.',
+  'Narrower confidence intervals': 'If this data had narrower confidence intervals, it would reduce uncertainty around the estimate. The wide confidence intervals in this dataset make it impossible to determine whether a positive, negative, or null relationship exists. By decreasing the error, the possibility of detecting a true effect is greater.',
+  'Perform more statistical tests': 'Using different statistical tests to search for a positive result is a form of p-hacking that will not change the underlying data or reduce the uncertainty. The ambiguity in these results comes from the data itself.',
+  'Repeat this experiment in a different population': 'Data from a different population would produce a separate result that may still have the same uncertainty (small slope, wide confidence intervals). This does not resolve whether the effect is real in this sample.',
+};
+const HELPFUL_OPTIONS = new Set(['A larger sample of data points', 'A steeper regression line', 'Narrower confidence intervals']);
+
+// ─── Simulated peer data ──────────────────────────────────────────────────────
+// TODO: DEV - Replace with real stored responses from database
+const PEER_DIST = {
+  s1predict: [28, 18, 54],
+  s1confidence: [42, 45, 13],
+  s2conclude: [15, 8, 77],
+  s3what: [71, 38, 55, 12, 19],
+};
+
+const PEER_TEXT_S1 = [
+  "The points seem pretty scattered — I can't really see a clear trend going up or down.",
+  "There might be a slight upward pattern but it's hard to say. Could just be noise.",
+  "The data looks random to me. Hard to draw any conclusions without more analysis.",
+  "I see a weak positive relationship maybe, but the scatter is really wide.",
+];
+
+const PEER_TEXT_S2 = [
+  "The line goes up but the confidence interval is really wide — feels uncertain.",
+  "Even with the regression line it's hard to be sure. The band crosses a lot of the data.",
+  "The slope looks positive but the error range is huge. Could easily be zero.",
+  "I wasn't expecting the CI to be that wide. Makes me less confident there's a real effect.",
+];
+
+// ─── Study overview data ──────────────────────────────────────────────────────
+const OVERVIEW_ROWS = [
+  ['Hypothesis', 'Expression level of Protein X is a biomarker for longevity'],
+  ['Method', 'Protein assay of tissue samples linked to individual lifespan records'],
+  ['Sample size', 'N = 100'],
+  ['Measurement', 'Protein X expression standardized to a z-score (−2 to +2)'],
+  ['Expected effect size', '+5 years'],
+];
+
+// ─── StudyOverviewTable (static, for Screen 1) ───────────────────────────────
+// TODO: Replace with shared StudyOverviewTable component
+function StudyOverviewTable({ footer }) {
+  return (
+    <div style={{
+      border: `1px solid ${C.border}`, borderRadius: 8,
+      marginBottom: 20, background: C.white, overflow: 'hidden',
+    }}>
+      <div style={{ padding: '12px 16px 0' }}>
+        <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 10 }}>
+          Study Overview
+        </div>
+      </div>
+      <div style={{ padding: '0 16px 16px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <tbody>
+            {OVERVIEW_ROWS.map(([label, value], i) => (
+              <tr key={label}>
+                <td style={{
+                  width: '34%', fontWeight: 700, fontSize: '0.9rem', color: C.dark,
+                  padding: '6px 12px 6px 0', verticalAlign: 'top',
+                  borderTop: i === 0 ? `1px solid ${C.border}` : 'none',
+                  borderBottom: `1px solid ${C.border}`,
+                }}>{label}</td>
+                <td style={{
+                  fontWeight: 500, fontSize: '0.9rem', color: C.dark,
+                  padding: '6px 0 6px 12px', verticalAlign: 'top',
+                  borderTop: i === 0 ? `1px solid ${C.border}` : 'none',
+                  borderBottom: `1px solid ${C.border}`,
+                }}>{value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {footer && (
+          <div style={{ fontSize: '1rem', fontWeight: 500, color: C.dark, marginTop: 12 }}>
+            {footer}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── CollapsibleStudyOverview ─────────────────────────────────────────────────
+// TODO: Replace with shared CollapsibleStudyOverview component
+function CollapsibleStudyOverview() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{
+      border: `1px solid ${C.border}`, borderRadius: 8,
+      marginBottom: 20, background: C.white, overflow: 'hidden',
+    }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '12px 16px', cursor: 'pointer', userSelect: 'none',
+        }}
+      >
+        <div style={{
+          width: 26, height: 26, borderRadius: '50%',
+          border: `1.5px solid ${C.border}`,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          flexShrink: 0, background: C.white,
+        }}>
+          <span style={{
+            fontSize: 14, color: C.dark, lineHeight: 1,
+            display: 'inline-block',
+            transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.2s',
+          }}>▾</span>
+        </div>
+        <span style={{ fontSize: '1rem', fontWeight: 600, color: C.black }}>Study Overview</span>
+      </div>
+      {open && (
+        <div style={{ padding: '0 16px 16px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <tbody>
+              {OVERVIEW_ROWS.map(([label, value], i) => (
+                <tr key={label}>
+                  <td style={{
+                    width: '34%', fontWeight: 700, fontSize: '0.9rem', color: C.dark,
+                    padding: '6px 12px 6px 0', verticalAlign: 'top',
+                    borderTop: i === 0 ? `1px solid ${C.border}` : 'none',
+                    borderBottom: `1px solid ${C.border}`,
+                  }}>{label}</td>
+                  <td style={{
+                    fontWeight: 500, fontSize: '0.9rem', color: C.dark,
+                    padding: '6px 0 6px 12px', verticalAlign: 'top',
+                    borderTop: i === 0 ? `1px solid ${C.border}` : 'none',
+                    borderBottom: `1px solid ${C.border}`,
+                  }}>{value}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ProgressBar ──────────────────────────────────────────────────────────────
+// TODO: Replace with shared ProgressBar component
+function ProgressBar({ current }) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ fontSize: '0.8rem', fontWeight: 500, color: C.dark, marginBottom: 6 }}>
+        Screen {current} of {TOTAL_SCREENS}
+      </div>
+      <div style={{ height: 6, background: C.border, borderRadius: 999, overflow: 'hidden' }}>
+        <div style={{
+          height: '100%',
+          width: `${(current / TOTAL_SCREENS) * 100}%`,
+          background: C.accent, borderRadius: 999,
+          transition: 'width 0.3s ease',
+        }} />
+      </div>
+    </div>
+  );
+}
+
+// ─── InstructionCard ──────────────────────────────────────────────────────────
+// TODO: Replace with shared InstructionCard component
+function InstructionCard({ title, subtitle, children }) {
+  return (
+    <div style={{
+      background: C.blueBg, borderLeft: `4px solid ${C.blue}`,
+      borderRadius: 8, padding: 16, marginBottom: 20,
+    }}>
+      {title && (
+        <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: subtitle || children ? 6 : 0 }}>
+          {title}
+        </div>
+      )}
+      {subtitle && (
+        <div style={{ fontSize: '1rem', fontWeight: 500, color: C.dark, marginBottom: children ? 6 : 0 }}>
+          {subtitle}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+// ─── StyledButton ─────────────────────────────────────────────────────────────
+// TODO: Replace with shared StyledButton component
+function StyledButton({ children, onClick, disabled, variant = 'primary', style = {} }) {
+  const [hovered, setHovered] = useState(false);
+  const base = {
+    padding: '10px 20px', fontSize: '1rem', fontWeight: 600,
+    borderRadius: 8, border: 'none',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    transition: 'all 0.2s ease',
+    boxShadow: disabled ? 'none' : '0 2px 8px rgba(0,0,0,0.15)',
+    transform: hovered && !disabled ? 'scale(1.02)' : 'scale(1)',
+  };
+  const variants = {
+    primary: {
+      background: disabled ? C.mid : hovered ? C.accent : C.black,
+      color: C.white,
+    },
+    secondary: {
+      background: disabled ? C.border : hovered ? C.dark : C.lightGray,
+      color: disabled ? C.mid : hovered ? C.white : C.dark,
+      border: `2px solid ${disabled ? C.border : hovered ? C.dark : C.lightGray}`,
+    },
+  };
+  return (
+    <button
+      onClick={disabled ? undefined : onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ ...base, ...variants[variant], ...style }}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ─── MCQOption ────────────────────────────────────────────────────────────────
+function MCQOption({ label, selected, onClick }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '12px 16px', borderRadius: 8,
+        border: `2px solid ${selected ? C.accent : C.border}`,
+        background: selected ? C.accentLight : C.white,
+        cursor: 'pointer', transition: 'all 0.2s ease',
+        boxShadow: hovered ? '0 4px 12px rgba(0,0,0,0.15)' : 'none',
+        transform: hovered ? 'translateY(-1px)' : 'none',
+        marginBottom: 8,
+      }}
+    >
+      <div style={{
+        width: 18, height: 18, borderRadius: '50%',
+        border: `2px solid ${selected ? C.accent : C.mid}`,
+        background: selected ? C.accent : C.white,
+        flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {selected && <div style={{ width: 7, height: 7, borderRadius: '50%', background: C.white }} />}
+      </div>
+      <span style={{ fontSize: '1rem', fontWeight: 500, color: C.dark }}>{label}</span>
+    </div>
+  );
+}
+
+// ─── CheckboxOption ───────────────────────────────────────────────────────────
+function CheckboxOption({ label, checked, onChange }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      onClick={onChange}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '12px 16px', borderRadius: 8,
+        border: `2px solid ${checked ? C.accent : C.border}`,
+        background: checked ? C.accentLight : C.white,
+        cursor: 'pointer', transition: 'all 0.2s ease',
+        boxShadow: hovered ? '0 4px 12px rgba(0,0,0,0.15)' : 'none',
+        transform: hovered ? 'translateY(-1px)' : 'none',
+        marginBottom: 8,
+      }}
+    >
+      <div style={{
+        width: 18, height: 18, borderRadius: 4,
+        border: `2px solid ${checked ? C.accent : C.mid}`,
+        background: checked ? C.accent : C.white,
+        flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {checked && (
+          <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+            <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </div>
+      <span style={{ fontSize: '1rem', fontWeight: 500, color: C.dark }}>{label}</span>
+    </div>
+  );
+}
+
+// ─── NavBar ───────────────────────────────────────────────────────────────────
+// TODO: Replace with NavigationFooterV2
+function NavBar({ onPrev, onNext, canPrev, canNext, nextLabel = 'NEXT', nextTooltip = '' }) {
+  const [tipVisible, setTipVisible] = useState(false);
+  return (
+    <div style={{
+      position: 'fixed', bottom: 0, left: 0, right: 0,
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '12px 32px', background: C.white,
+      borderTop: `1px solid ${C.border}`,
+      boxShadow: '0 -2px 10px rgba(0,0,0,0.08)', zIndex: 1000,
+    }}>
+      {canPrev
+        ? <StyledButton variant="secondary" onClick={onPrev}>PREVIOUS</StyledButton>
+        : <div />
+      }
+      <div
+        style={{ position: 'relative' }}
+        onMouseEnter={() => !canNext && setTipVisible(true)}
+        onMouseLeave={() => setTipVisible(false)}
+      >
+        {tipVisible && !canNext && (
+          <div style={{
+            position: 'absolute', bottom: '110%', left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(0,0,0,0.85)', color: C.white,
+            padding: '8px 12px', borderRadius: 6,
+            fontSize: '0.8rem', fontWeight: 500,
+            whiteSpace: 'nowrap', pointerEvents: 'none',
+          }}>
+            {nextTooltip}
+          </div>
+        )}
+        <StyledButton variant="primary" onClick={onNext} disabled={!canNext}>
+          {nextLabel}
+        </StyledButton>
+      </div>
+    </div>
+  );
+}
+
+// ─── DistributionBar ──────────────────────────────────────────────────────────
+// userResponses: string or array — user's chosen options (shown with "You said" tag)
+// correctResponses: string or array — correct answers (shown bold)
+function DistributionBar({ label, options, counts, total, userResponses = [], correctResponses = [] }) {
+  const userSet = new Set(Array.isArray(userResponses) ? userResponses : [userResponses]);
+  const correctSet = new Set(Array.isArray(correctResponses) ? correctResponses : [correctResponses]);
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: '0.8rem', fontWeight: 700, color: C.dark, marginBottom: 8 }}>{label}</div>
+      {options.map((opt, i) => {
+        const pct = total > 0 ? Math.round((counts[i] / total) * 100) : 0;
+        const isUser = userSet.has(opt);
+        const isCorrect = correctSet.size > 0 && correctSet.has(opt);
+        return (
+          <div key={opt} style={{ marginBottom: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+              <span style={{
+                fontSize: '0.8rem',
+                fontWeight: isCorrect ? 700 : 500,
+                color: C.dark,
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                {opt}
+                {isUser && (
+                  <span style={{
+                    fontSize: '0.7rem', fontWeight: 600, color: C.accent,
+                    background: C.accentLight, border: `1px solid ${C.accent}`,
+                    borderRadius: 4, padding: '1px 6px', lineHeight: 1.6,
+                  }}>You said</span>
+                )}
+              </span>
+              <span style={{ fontSize: '0.8rem', fontWeight: 500, color: C.mid, flexShrink: 0, marginLeft: 8 }}>{pct}%</span>
+            </div>
+            <div style={{ height: 8, background: C.border, borderRadius: 999, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%', width: `${pct}%`,
+                background: isUser ? C.accent : '#B0B0B0',
+                borderRadius: 999,
+                transition: 'width 0.5s ease',
+              }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── PeerTextToggle ───────────────────────────────────────────────────────────
+function PeerTextToggle({ responses }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 12 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          background: 'none', border: `1.5px solid ${C.accent}`,
+          borderRadius: 6, padding: '6px 14px',
+          color: C.accent, fontSize: '0.8rem', fontWeight: 600,
+          cursor: 'pointer',
+        }}
+      >
+        {open ? 'Hide what others thought' : 'See what others thought'}
+      </button>
+      {open && (
+        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {responses.map((r, i) => (
+            <div key={i} style={{
+              padding: '10px 14px', borderRadius: 8,
+              background: C.lightGray, border: `1px solid ${C.border}`,
+              fontSize: '0.9rem', fontWeight: 500, color: C.dark, fontStyle: 'italic',
+            }}>
+              "{r}"
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── UserResponseBox ──────────────────────────────────────────────────────────
+function UserResponseBox({ label, value }) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: '0.8rem', fontWeight: 700, color: C.dark, marginBottom: 6 }}>{label}</div>
+      <div style={{
+        padding: '10px 14px', background: C.accentLight,
+        border: `1.5px solid ${C.accent}`, borderRadius: 8,
+        fontSize: '1rem', fontWeight: 500, color: C.dark,
+      }}>
+        {value || <em style={{ color: C.mid }}>No response entered</em>}
+      </div>
+    </div>
+  );
+}
+
+// ─── Scatterplot ──────────────────────────────────────────────────────────────
+function Scatterplot({ showRegression = false }) {
+  const W = 560, H = 340;
+  const pad = { top: 20, right: 20, bottom: 50, left: 56 };
+  const innerW = W - pad.left - pad.right;
+  const innerH = H - pad.top - pad.bottom;
+  const xMin = -2.2, xMax = 2.2;
+
+  const rawYMin = Math.min(...DATA.map(d => d.y));
+  const rawYMax = Math.max(...DATA.map(d => d.y));
+  const yPad = (rawYMax - rawYMin) * 0.08;
+  const yMin = Math.floor((rawYMin - yPad) / 2) * 2;
+  const yMax = Math.ceil((rawYMax + yPad) / 2) * 2;
+
+  function scaleX(v) { return pad.left + ((v - xMin) / (xMax - xMin)) * innerW; }
+  function scaleY(v) { return pad.top + ((yMax - v) / (yMax - yMin)) * innerH; }
+
+  const xTicks = [-2, -1, 0, 1, 2];
+  const yTickCount = 6;
+  const yTickStep = Math.ceil((yMax - yMin) / (yTickCount - 1) / 2) * 2;
+  const yTicks = Array.from({ length: yTickCount }, (_, i) => yMin + i * yTickStep).filter(t => t <= yMax);
+
+  const { slope, intercept } = linearRegression(DATA);
+  const ciXVals = Array.from({ length: 60 }, (_, i) => xMin + (i / 59) * (xMax - xMin));
+  const ciData = computeCI(DATA, ciXVals);
+  const lineY1 = slope * xMin + intercept;
+  const lineY2 = slope * xMax + intercept;
+
+  const upperPath = ciData.map((d, i) =>
+    `${i === 0 ? 'M' : 'L'}${scaleX(d.x).toFixed(1)},${scaleY(d.upper).toFixed(1)}`
+  ).join(' ');
+  const lowerPathRev = [...ciData].reverse().map((d, i) =>
+    `${i === 0 ? 'M' : 'L'}${scaleX(d.x).toFixed(1)},${scaleY(d.lower).toFixed(1)}`
+  ).join(' ');
+  const ciPath = upperPath + ' ' + lowerPathRev + ' Z';
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W, display: 'block', margin: '0 auto' }}>
+      {yTicks.map(t => (
+        <line key={t} x1={pad.left} x2={pad.left + innerW} y1={scaleY(t)} y2={scaleY(t)} stroke={C.border} strokeWidth="1" />
+      ))}
+      {xTicks.map(t => (
+        <line key={t} x1={scaleX(t)} x2={scaleX(t)} y1={pad.top} y2={pad.top + innerH} stroke={C.border} strokeWidth="1" />
+      ))}
+      {showRegression && <path d={ciPath} fill="rgba(111,0,255,0.10)" stroke="none" />}
+      {showRegression && (
+        <line x1={scaleX(xMin)} y1={scaleY(lineY1)} x2={scaleX(xMax)} y2={scaleY(lineY2)} stroke={C.accent} strokeWidth="2.5" strokeLinecap="round" />
+      )}
+      {showRegression && (
+        <>
+          <path d={upperPath} fill="none" stroke={C.accent} strokeWidth="1" strokeDasharray="4 3" opacity="0.5" />
+          <path d={lowerPathRev} fill="none" stroke={C.accent} strokeWidth="1" strokeDasharray="4 3" opacity="0.5" />
+        </>
+      )}
+      {DATA.map((d, i) => (
+        <circle key={i} cx={scaleX(d.x)} cy={scaleY(d.y)} r="4" fill={C.blue} fillOpacity="0.55" stroke={C.white} strokeWidth="0.8" />
+      ))}
+      <line x1={pad.left} y1={pad.top + innerH} x2={pad.left + innerW} y2={pad.top + innerH} stroke={C.dark} strokeWidth="1.5" />
+      <line x1={pad.left} y1={pad.top} x2={pad.left} y2={pad.top + innerH} stroke={C.dark} strokeWidth="1.5" />
+      {xTicks.map(t => (
+        <text key={t} x={scaleX(t)} y={pad.top + innerH + 18} textAnchor="middle" fontSize="12" fill={C.dark}>{t}</text>
+      ))}
+      {yTicks.map(t => (
+        <text key={t} x={pad.left - 8} y={scaleY(t) + 4} textAnchor="end" fontSize="12" fill={C.dark}>{t}</text>
+      ))}
+      <text x={pad.left + innerW / 2} y={H - 4} textAnchor="middle" fontSize="13" fontWeight="600" fill={C.dark}>
+        Protein X Expression (z-score)
+      </text>
+      <text transform={`translate(13,${pad.top + innerH / 2}) rotate(-90)`} textAnchor="middle" fontSize="13" fontWeight="600" fill={C.dark}>
+        Lifespan (years)
+      </text>
+      {showRegression && (
+        <text x={pad.left + innerW - 4} y={pad.top + 16} textAnchor="end" fontSize="12" fontWeight="600" fill={C.accent}>
+          slope = 0.90
+        </text>
+      )}
+      {showRegression && (
+        <text x={pad.left + 8} y={pad.top + 16} textAnchor="start" fontSize="11" fill={C.accent} opacity="0.8">
+          — 95% confidence interval
+        </text>
+      )}
+    </svg>
+  );
+}
+
+// ─── Screen 1 ─────────────────────────────────────────────────────────────────
+function Screen1({ s1Predict, setS1Predict, s1Justification, setS1Justification, s1Confidence, setS1Confidence }) {
+  return (
+    <div>
+      <ProgressBar current={1} />
+      <StudyOverviewTable />
+      <InstructionCard subtitle="Examine the data below and share your initial interpretation." />
+      <div style={{ marginBottom: 16 }}>
+        <Scatterplot showRegression={false} />
+      </div>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: '1rem', fontWeight: 700, color: C.black, marginBottom: 12 }}>
+          Based on this scatterplot, does Protein X expression appear correlated with lifespan?
+        </div>
+        {['Yes', 'No', 'Impossible to tell'].map(opt => (
+          <MCQOption key={opt} label={opt} selected={s1Predict === opt} onClick={() => setS1Predict(opt)} />
+        ))}
+      </div>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: '1rem', fontWeight: 700, color: C.black, marginBottom: 8 }}>
+          Why?
+        </div>
+        <textarea
+          value={s1Justification}
+          onChange={e => setS1Justification(e.target.value)}
+          placeholder="Describe what you observe in the scatterplot..."
+          style={{
+            width: '100%', minHeight: 90, padding: '10px 12px',
+            fontSize: '1rem', fontWeight: 500, color: C.dark,
+            border: `1.5px solid ${C.border}`, borderRadius: 8,
+            resize: 'vertical', fontFamily: 'inherit',
+            boxSizing: 'border-box', outline: 'none',
+          }}
+        />
+      </div>
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: '1rem', fontWeight: 700, color: C.black, marginBottom: 12 }}>
+          How confident are you in your answer?
+        </div>
+        {['Not confident', 'Somewhat confident', 'Very confident'].map(opt => (
+          <MCQOption key={opt} label={opt} selected={s1Confidence === opt} onClick={() => setS1Confidence(opt)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Feedback 1 ───────────────────────────────────────────────────────────────
+function Feedback1({ s1Predict, s1Confidence, s1Justification }) {
+  const feedbackKey = `${s1Predict}|${s1Confidence}`;
+  const feedbackText = S1_FEEDBACK[feedbackKey] || '';
+  const isPositive = s1Predict === 'Impossible to tell';
+
+  return (
+    <div>
+      <ProgressBar current={2} />
+      <CollapsibleStudyOverview />
+
+      {/* Tailored feedback with "You said" inline */}
+      <div style={{
+        padding: '14px 16px', marginBottom: 20, borderRadius: 8,
+        border: `1.5px solid ${isPositive ? C.successBorder : C.warningBorder}`,
+        background: isPositive ? C.successBg : C.warningBg,
+      }}>
+        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: C.dark, marginBottom: 6 }}>
+          You said: {s1Predict} — {s1Confidence}
+        </div>
+        <div style={{ fontSize: '1rem', fontWeight: 500, color: C.dark }}>
+          {feedbackText}
+        </div>
+      </div>
+
+      <div style={{
+        background: C.white, border: `1px solid ${C.border}`,
+        borderRadius: 10, padding: 20, marginBottom: 20,
+      }}>
+        <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 16 }}>
+          Response Summary
+        </div>
+        <DistributionBar
+          label="Does Protein X expression appear correlated with lifespan?"
+          options={['Yes', 'No', 'Impossible to tell']}
+          counts={[
+            PEER_DIST.s1predict[0] + (s1Predict === 'Yes' ? 1 : 0),
+            PEER_DIST.s1predict[1] + (s1Predict === 'No' ? 1 : 0),
+            PEER_DIST.s1predict[2] + (s1Predict === 'Impossible to tell' ? 1 : 0),
+          ]}
+          total={PEER_DIST.s1predict.reduce((a, b) => a + b, 0) + 1}
+          userResponses={s1Predict}
+        />
+        <DistributionBar
+          label="How confident are you?"
+          options={['Not confident', 'Somewhat confident', 'Very confident']}
+          counts={[
+            PEER_DIST.s1confidence[0] + (s1Confidence === 'Not confident' ? 1 : 0),
+            PEER_DIST.s1confidence[1] + (s1Confidence === 'Somewhat confident' ? 1 : 0),
+            PEER_DIST.s1confidence[2] + (s1Confidence === 'Very confident' ? 1 : 0),
+          ]}
+          total={PEER_DIST.s1confidence.reduce((a, b) => a + b, 0) + 1}
+          userResponses={s1Confidence}
+        />
+        <UserResponseBox label="Your justification" value={s1Justification} />
+        <PeerTextToggle responses={PEER_TEXT_S1} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Screen 2 ─────────────────────────────────────────────────────────────────
+function Screen2({ s2Conclude, setS2Conclude, s2Justification, setS2Justification }) {
+  return (
+    <div>
+      <ProgressBar current={3} />
+      <InstructionCard
+        subtitle="The researchers ran a linear regression on the same data. The line shows the best-fit relationship, and the shaded region shows the 95% confidence interval around that estimate."
+      />
+      <CollapsibleStudyOverview />
+      <div style={{ marginBottom: 16 }}>
+        <Scatterplot showRegression={true} />
+      </div>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: '1rem', fontWeight: 700, color: C.black, marginBottom: 12 }}>
+          Based on this analysis, what would you conclude?
+        </div>
+        {[
+          'Protein X is correlated with lifespan',
+          'Protein X is not correlated with lifespan',
+          "We can't conclude either way",
+        ].map(opt => (
+          <MCQOption key={opt} label={opt} selected={s2Conclude === opt} onClick={() => setS2Conclude(opt)} />
+        ))}
+      </div>
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: '1rem', fontWeight: 700, color: C.black, marginBottom: 8 }}>
+          What features of the data and statistical analysis led you to that conclusion?
+        </div>
+        <textarea
+          value={s2Justification}
+          onChange={e => setS2Justification(e.target.value)}
+          placeholder="Describe what you see in the regression and confidence interval..."
+          style={{
+            width: '100%', minHeight: 90, padding: '10px 12px',
+            fontSize: '1rem', fontWeight: 500, color: C.dark,
+            border: `1.5px solid ${C.border}`, borderRadius: 8,
+            resize: 'vertical', fontFamily: 'inherit',
+            boxSizing: 'border-box', outline: 'none',
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Feedback 2 ───────────────────────────────────────────────────────────────
+function Feedback2({ s2Conclude, s2Justification }) {
+  const isPositive = s2Conclude === "We can't conclude either way";
+  const feedbackText = s2Conclude === 'Protein X is correlated with lifespan'
+    ? "The positive slope is suggestive, but the wide confidence interval means a conclusion in either direction is not yet supported."
+    : s2Conclude === 'Protein X is not correlated with lifespan'
+      ? "Skepticism is reasonable, but the wide confidence interval means a conclusion in either direction is not yet supported."
+      : "With a confidence interval this wide, a conclusion in either direction is not yet supported.";
+
+  return (
+    <div>
+      <ProgressBar current={4} />
+      <CollapsibleStudyOverview />
+
+      <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 16 }}>
+        The results from this data are inconclusive.
+      </div>
+
+      <div style={{
+        padding: '14px 16px', marginBottom: 20, borderRadius: 8,
+        border: `1.5px solid ${isPositive ? C.successBorder : C.warningBorder}`,
+        background: isPositive ? C.successBg : C.warningBg,
+      }}>
+        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: C.dark, marginBottom: 6 }}>
+          You said: {s2Conclude}
+        </div>
+        <div style={{ fontSize: '1rem', fontWeight: 500, color: C.dark }}>
+          {feedbackText}
+        </div>
+      </div>
+
+      <div style={{
+        background: C.white, border: `1px solid ${C.border}`,
+        borderRadius: 10, padding: 20, marginBottom: 20,
+      }}>
+        <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 16 }}>
+          Response Summary
+        </div>
+        <DistributionBar
+          label="What would you conclude?"
+          options={['Protein X is correlated with lifespan', 'Protein X is not correlated with lifespan', "We can't conclude either way"]}
+          counts={[
+            PEER_DIST.s2conclude[0] + (s2Conclude === 'Protein X is correlated with lifespan' ? 1 : 0),
+            PEER_DIST.s2conclude[1] + (s2Conclude === 'Protein X is not correlated with lifespan' ? 1 : 0),
+            PEER_DIST.s2conclude[2] + (s2Conclude === "We can't conclude either way" ? 1 : 0),
+          ]}
+          total={PEER_DIST.s2conclude.reduce((a, b) => a + b, 0) + 1}
+          userResponses={s2Conclude}
+          correctResponses="We can't conclude either way"
+        />
+        <UserResponseBox label="Your justification" value={s2Justification} />
+        <PeerTextToggle responses={PEER_TEXT_S2} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Screen 3 ─────────────────────────────────────────────────────────────────
+function Screen3({ s3What, setS3What, s3WhatSubmitted, setS3WhatSubmitted }) {
+  const anySelected = Object.values(s3What).some(Boolean);
+  return (
+    <div>
+      <ProgressBar current={5} />
+      <InstructionCard
+        subtitle="Consider what evidence would be needed to draw a confident conclusion from this data."
+      />
+      <CollapsibleStudyOverview />
+      <div style={{ marginBottom: 16 }}>
+        <Scatterplot showRegression={true} />
+      </div>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: '1rem', fontWeight: 700, color: C.black, marginBottom: 4 }}>
+          What would you need to see to confidently know if there is a relationship?
+        </div>
+        <div style={{ fontSize: '0.8rem', fontWeight: 500, color: C.mid, marginBottom: 12 }}>
+          Select all that apply
+        </div>
+        {Object.keys(s3What).map(opt => (
+          <CheckboxOption
+            key={opt}
+            label={opt}
+            checked={s3What[opt]}
+            onChange={() => !s3WhatSubmitted && setS3What(prev => ({ ...prev, [opt]: !prev[opt] }))}
+          />
+        ))}
+        {!s3WhatSubmitted && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+            <StyledButton variant="primary" disabled={!anySelected} onClick={() => setS3WhatSubmitted(true)}>
+              Submit
+            </StyledButton>
+          </div>
+        )}
+        {s3WhatSubmitted && (
+          <div style={{ marginTop: 16 }}>
+            {Object.keys(s3What).map(opt => {
+              const isHelpful = HELPFUL_OPTIONS.has(opt);
+              return (
+                <div key={opt} style={{
+                  padding: '10px 14px', marginBottom: 8, borderRadius: 8,
+                  border: `1.5px solid ${isHelpful ? C.successBorder : C.warningBorder}`,
+                  background: isHelpful ? C.successBg : C.warningBg,
+                }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: C.dark, marginBottom: 3 }}>{opt}</div>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 500, color: C.dark }}>{OPTION_FEEDBACK[opt]}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Feedback 3 ───────────────────────────────────────────────────────────────
+function Feedback3({ s3What }) {
+  const userSelected = Object.keys(s3What).filter(k => s3What[k]);
+  const correctOptions = Array.from(HELPFUL_OPTIONS);
+  return (
+    <div>
+      <ProgressBar current={6} />
+      <CollapsibleStudyOverview />
+
+      <div style={{
+        padding: '14px 16px', marginBottom: 20, borderRadius: 8,
+        border: `1.5px solid ${C.blue}`,
+        background: C.blueBg,
+        fontSize: '1rem', fontWeight: 500, color: C.dark,
+      }}>
+        The ambiguity of this data and subsequent analysis reflects a lack of statistical precision, not necessarily the absence of a true effect. To determine whether Protein X genuinely predicts lifespan, researchers would need a larger sample — more data points would narrow the confidence interval and make it possible to distinguish a real signal from random variation. Changing the analysis method or collecting data from a different population would not address this fundamental limitation.
+      </div>
+
+      <div style={{
+        background: C.white, border: `1px solid ${C.border}`,
+        borderRadius: 10, padding: 20, marginBottom: 20,
+      }}>
+        <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 16 }}>
+          Response Summary
+        </div>
+        <DistributionBar
+          label="What would you need to see to confidently know if there is a relationship?"
+          options={Object.keys(s3What)}
+          counts={Object.keys(s3What).map((opt, i) => PEER_DIST.s3what[i] + (s3What[opt] ? 1 : 0))}
+          total={PEER_DIST.s3what.reduce((a, b) => a + b, 0) + Object.values(s3What).filter(Boolean).length}
+          userResponses={userSelected}
+          correctResponses={correctOptions}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Final Results ────────────────────────────────────────────────────────────
+function FinalResults({ s1Predict, s1Confidence, s1Justification, s2Conclude, s2Justification, s3What }) {
+  const userS3Selected = Object.keys(s3What).filter(k => s3What[k]);
+  return (
+    <div>
+      <ProgressBar current={7} />
+      <CollapsibleStudyOverview />
+
+      <InstructionCard
+        title="Activity Results"
+        subtitle="You just interpreted real research data, first on your own and then with the help of a statistical analysis."
+      />
+
+      <div style={{
+        background: C.white, border: `1px solid ${C.border}`,
+        borderRadius: 10, padding: 20, marginBottom: 16,
+      }}>
+        <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 12 }}>
+          Screen 1 — Initial Interpretation
+        </div>
+        <DistributionBar
+          label="Does Protein X expression appear correlated with lifespan?"
+          options={['Yes', 'No', 'Impossible to tell']}
+          counts={[
+            PEER_DIST.s1predict[0] + (s1Predict === 'Yes' ? 1 : 0),
+            PEER_DIST.s1predict[1] + (s1Predict === 'No' ? 1 : 0),
+            PEER_DIST.s1predict[2] + (s1Predict === 'Impossible to tell' ? 1 : 0),
+          ]}
+          total={PEER_DIST.s1predict.reduce((a, b) => a + b, 0) + 1}
+          userResponses={s1Predict}
+        />
+        <DistributionBar
+          label="How confident are you?"
+          options={['Not confident', 'Somewhat confident', 'Very confident']}
+          counts={[
+            PEER_DIST.s1confidence[0] + (s1Confidence === 'Not confident' ? 1 : 0),
+            PEER_DIST.s1confidence[1] + (s1Confidence === 'Somewhat confident' ? 1 : 0),
+            PEER_DIST.s1confidence[2] + (s1Confidence === 'Very confident' ? 1 : 0),
+          ]}
+          total={PEER_DIST.s1confidence.reduce((a, b) => a + b, 0) + 1}
+          userResponses={s1Confidence}
+        />
+        <UserResponseBox label="Your justification" value={s1Justification} />
+      </div>
+
+      <div style={{
+        background: C.white, border: `1px solid ${C.border}`,
+        borderRadius: 10, padding: 20, marginBottom: 16,
+      }}>
+        <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 12 }}>
+          Screen 2 — After Statistical Analysis
+        </div>
+        <DistributionBar
+          label="What would you conclude?"
+          options={['Protein X is correlated with lifespan', 'Protein X is not correlated with lifespan', "We can't conclude either way"]}
+          counts={[
+            PEER_DIST.s2conclude[0] + (s2Conclude === 'Protein X is correlated with lifespan' ? 1 : 0),
+            PEER_DIST.s2conclude[1] + (s2Conclude === 'Protein X is not correlated with lifespan' ? 1 : 0),
+            PEER_DIST.s2conclude[2] + (s2Conclude === "We can't conclude either way" ? 1 : 0),
+          ]}
+          total={PEER_DIST.s2conclude.reduce((a, b) => a + b, 0) + 1}
+          userResponses={s2Conclude}
+          correctResponses="We can't conclude either way"
+        />
+        <UserResponseBox label="Your justification" value={s2Justification} />
+      </div>
+
+      <div style={{
+        background: C.white, border: `1px solid ${C.border}`,
+        borderRadius: 10, padding: 20, marginBottom: 24,
+      }}>
+        <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 12 }}>
+          Screen 3 — How to Find a True Effect
+        </div>
+        <DistributionBar
+          label="What would you need to see to confidently know if there is a relationship?"
+          options={Object.keys(s3What)}
+          counts={Object.keys(s3What).map((opt, i) => PEER_DIST.s3what[i] + (s3What[opt] ? 1 : 0))}
+          total={PEER_DIST.s3what.reduce((a, b) => a + b, 0) + userS3Selected.length}
+          userResponses={userS3Selected}
+          correctResponses={Array.from(HELPFUL_OPTIONS)}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Congrats ─────────────────────────────────────────────────────────────────
+function CongratsScreen() {
+  return (
+    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+      <div style={{ fontSize: '3rem', marginBottom: 16 }}>🎉</div>
+      <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 12 }}>
+        Activity Complete
+      </div>
+      <div style={{ fontSize: '1rem', fontWeight: 500, color: C.dark, maxWidth: 480, margin: '0 auto' }}>
+        You worked through a real research result and practiced interpreting what a statistical analysis can and cannot tell you. The tension between the slope and the confidence interval you observed is at the heart of what makes scientific conclusions hard to draw — and worth examining carefully.
+      </div>
+    </div>
+  );
+}
+
+// ─── Main activity ─────────────────────────────────────────────────────────────
+function Activity() {
+  const [screen, setScreen] = useState(1);
+
+  // Screen 1 state
+  const [s1Predict, setS1Predict] = useState('');
+  const [s1Justification, setS1Justification] = useState('');
+  const [s1Confidence, setS1Confidence] = useState('');
+
+  // Screen 2 state
+  const [s2Conclude, setS2Conclude] = useState('');
+  const [s2Justification, setS2Justification] = useState('');
+
+  // Screen 3 state
+  const [s3What, setS3What] = useState({
+    'A larger sample of data points': false,
+    'A steeper regression line': false,
+    'Narrower confidence intervals': false,
+    'Perform more statistical tests': false,
+    'Repeat this experiment in a different population': false,
+  });
+  const [s3WhatSubmitted, setS3WhatSubmitted] = useState(false);
+
+  function canProceed() {
+    if (screen === 1) return s1Predict !== '' && s1Justification.trim().length > 0 && s1Confidence !== '';
+    if (screen === 3) return s2Conclude !== '' && s2Justification.trim().length > 0;
+    if (screen === 5) return s3WhatSubmitted;
+    return true;
+  }
+
+  function nextTooltip() {
+    if (screen === 1) {
+      if (!s1Predict) return 'Select an answer to continue';
+      if (!s1Justification.trim()) return 'Enter your justification to continue';
+      if (!s1Confidence) return 'Select your confidence level to continue';
+    }
+    if (screen === 3) {
+      if (!s2Conclude) return 'Select a conclusion to continue';
+      if (!s2Justification.trim()) return 'Enter your justification to continue';
+    }
+    if (screen === 5) return 'Submit your selections to continue';
+    return '';
+  }
+
+  function goNext() {
+    if (!canProceed()) return;
+    if (screen === TOTAL_SCREENS) {
+      setScreen(8);
+    } else {
+      setScreen(s => s + 1);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function goPrev() {
+    if (screen > 1) {
+      setScreen(s => s - 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+
+  const isCongratsScreen = screen === 8;
+
+  return (
+    <div style={{ background: C.lightGray, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ maxWidth: 680, margin: '0 auto', padding: '24px 16px 120px' }}>
+
+        {screen === 1 && (
+          <Screen1
+            s1Predict={s1Predict} setS1Predict={setS1Predict}
+            s1Justification={s1Justification} setS1Justification={setS1Justification}
+            s1Confidence={s1Confidence} setS1Confidence={setS1Confidence}
+          />
+        )}
+        {screen === 2 && (
+          <Feedback1
+            s1Predict={s1Predict}
+            s1Confidence={s1Confidence}
+            s1Justification={s1Justification}
+          />
+        )}
+        {screen === 3 && (
+          <Screen2
+            s2Conclude={s2Conclude} setS2Conclude={setS2Conclude}
+            s2Justification={s2Justification} setS2Justification={setS2Justification}
+          />
+        )}
+        {screen === 4 && (
+          <Feedback2
+            s2Conclude={s2Conclude}
+            s2Justification={s2Justification}
+          />
+        )}
+        {screen === 5 && (
+          <Screen3
+            s3What={s3What} setS3What={setS3What}
+            s3WhatSubmitted={s3WhatSubmitted} setS3WhatSubmitted={setS3WhatSubmitted}
+          />
+        )}
+        {screen === 6 && (
+          <Feedback3 s3What={s3What} />
+        )}
+        {screen === 7 && (
+          <FinalResults
+            s1Predict={s1Predict} s1Confidence={s1Confidence} s1Justification={s1Justification}
+            s2Conclude={s2Conclude} s2Justification={s2Justification}
+            s3What={s3What}
+          />
+        )}
+        {screen === 8 && <CongratsScreen />}
+
+      </div>
+
+      {!isCongratsScreen && (
+        <NavBar
+          onPrev={goPrev}
+          onNext={goNext}
+          canPrev={screen > 1}
+          canNext={canProceed()}
+          nextLabel={screen === TOTAL_SCREENS ? 'COMPLETE ACTIVITY' : 'NEXT'}
+          nextTooltip={nextTooltip()}
+        />
+      )}
+
+      {isCongratsScreen && (
+        <div style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0,
+          display: 'flex', justifyContent: 'flex-start', alignItems: 'center',
+          padding: '12px 32px', background: C.white,
+          borderTop: `1px solid ${C.border}`,
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.08)', zIndex: 1000,
+        }}>
+          <StyledButton variant="secondary" onClick={goPrev}>PREVIOUS</StyledButton>
+        </div>
+      )}
+    </div>
+  );
+}
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(Activity));
+  </script>
+</body>
+</html>

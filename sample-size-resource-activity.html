@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Evaluating Sample Size Resources</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #F3F3F3; }
+    textarea { font-family: inherit; }
+    button { font-family: inherit; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState } = React;
+
+    // ============================================================================
+    // COLOR SYSTEM
+    // ============================================================================
+    const C = {
+      purple: '#6F00FF',
+      blue: '#0082FF',
+      green: '#0CC800',
+      orange: '#FF5A00',
+      black: '#202020',
+      darkGray: '#333132',
+      gray: '#757575',
+      midGray: '#999999',
+      midC: '#C4C4C4',
+      lightBorder: '#E0E0E0',
+      light: '#F3F3F3',
+      white: '#FFFFFF',
+    };
+
+    // ============================================================================
+    // SCENARIO DATA
+    // ============================================================================
+    const SCENARIOS = [
+      {
+        id: 1,
+        title: 'Online Calculator',
+        study: {
+          species: 'Mice',
+          design: 'Repeated-measures, 5 weekly timepoints',
+          outcome: 'Locomotor activity',
+          analysis: 'Mixed-effects model (drug-treated vs. vehicle control)',
+        },
+        resource: {
+          name: 'Online sample size calculator (found via Google)',
+          details: [
+            'Asks for effect size, alpha, and power',
+            'Outputs a single n per group',
+            'No information about assumed test or data structure',
+          ],
+        },
+        questions: [
+          { id: 'b', text: 'Do you know what website or organization is behind this calculator?' },
+          { id: 'f', text: 'Have you been able to find any publications or documentation that validate it?' },
+          { id: 'a', text: 'What kind of statistical test do you think this calculator might be designed to assume?' },
+          { id: 'e', text: 'Have you had a chance to check whether the alpha and power defaults seem right for your field?' },
+          { id: 'c', text: 'How did you arrive at your expected effect size — does it seem realistic for this kind of study?' },
+          { id: 'd', text: 'Does the calculator seem to account for the possibility that some animals might drop out over time?' },
+        ],
+        bestAnswers: ['a'],
+        rationale: "Online calculators are a common starting point, but they vary widely in the analyses they assume — and often don't say. A calculator built for a simple two-sample t-test will seriously underestimate the sample size needed for a repeated-measures mixed-effects model. That mismatch in assumed data structure is the most likely hazard with this type of resource, and it's the one that can't be worked around. Other concerns — effect size realism, attrition, publication credibility — are worth exploring, but none of them reveal a fundamental incompatibility the way the assumed test does.",
+      },
+      {
+        id: 2,
+        title: 'Neuroscience Paper',
+        study: {
+          species: 'Rats',
+          design: 'Between-subjects, novel pharmacological intervention',
+          outcome: 'Freezing behavior in fear conditioning',
+          analysis: 'Independent samples comparison (two groups)',
+        },
+        resource: {
+          name: 'Published rat fear conditioning paper',
+          details: [
+            'Reports n = 8/group',
+            "Cites a power analysis based on Cohen's d = 1.8",
+            "Effect size drawn from the authors' own pilot data",
+          ],
+        },
+        questions: [
+          { id: 'c', text: 'Do you know whether they used the same species and strain?' },
+          { id: 'a', text: 'Does the paper say anything about whether their pilot effect size estimate might have been on the high side?' },
+          { id: 'f', text: 'Is this a fairly recent paper, or might the methods be a bit dated?' },
+          { id: 'b', text: "Is the outcome measure they used the same as what you're planning?" },
+          { id: 'e', text: 'Did their power analysis use the same alpha and power targets you have in mind?' },
+          { id: 'd', text: 'Were they testing the same kind of drug or mechanism?' },
+        ],
+        bestAnswers: ['a'],
+        rationale: "Papers from similar studies can be useful anchors, but they carry a specific and common risk: effect sizes from pilot data are almost always inflated. Small samples produce highly variable estimates, and dramatic results are more likely to be written up. A Cohen's d of 1.8 is a red flag. If the paper doesn't acknowledge this risk, there's no basis for trusting the number — and basing your own sample size on it propagates the error. Questions about species match and outcome similarity matter too, but they don't threaten the validity of the calculation itself the way an unexamined effect size does.",
+      },
+      {
+        id: 3,
+        title: 'Statistics Textbook',
+        study: {
+          species: 'Mice',
+          design: 'Between-subjects, two groups',
+          outcome: 'Behavioral score (zero-inflated count data)',
+          analysis: 'Zero-inflated negative binomial model',
+        },
+        resource: {
+          name: 'Widely used biostatistics textbook chapter on power analysis',
+          details: [
+            'Covers t-tests, ANOVA, and chi-square tests',
+            'Includes worked examples and sample size tables',
+            'Does not mention zero-inflated or count models',
+          ],
+        },
+        questions: [
+          { id: 'd', text: 'Is this more of an introductory text, or does it go into more advanced territory?' },
+          { id: 'f', text: 'Does the chapter point you toward any software for running these calculations?' },
+          { id: 'a', text: 'Does it look like this chapter covers power analysis for zero-inflated count models?' },
+          { id: 'e', text: 'Do you know what edition this is — is it likely to be current?' },
+          { id: 'b', text: 'Is this textbook aimed at biological or neuroscience research specifically?' },
+          { id: 'c', text: 'Do you get the sense that the formulas or tables here could extend to less standard model types?' },
+        ],
+        bestAnswers: ['a'],
+        rationale: "Textbooks are thorough for the methods they cover, but coverage is exactly the issue here. A textbook focused on standard parametric tests rarely addresses zero-inflated count models, which require a specialized power analysis approach. If the chapter doesn't cover that model class, careful reading won't yield a valid sample size — the student needs a different resource entirely. Questions about edition currency or software recommendations are reasonable follow-ups, but only after confirming the resource can address the analysis at all.",
+      },
+    ];
+
+    const TOTAL = SCENARIOS.length;
+    const SUMMARY_SCREEN = TOTAL + 1;
+    const CONGRATS_SCREEN = TOTAL + 2;
+
+    // ============================================================================
+    // SIMULATED PARTICIPANT DATA
+    // ============================================================================
+    const PARTICIPANTS = [
+      { name: 'Alex R.', responses: [
+        { scenarioId: 1, selected: ['a','f'], justification: "If we don't know what test the calculator uses, we can't trust the output. Peer review status tells us whether anyone has validated it." },
+        { scenarioId: 2, selected: ['a','c'], justification: 'Pilot effect sizes are notorious for being inflated. Strain differences could also mean the biology is different enough to invalidate the comparison.' },
+        { scenarioId: 3, selected: ['a','c'], justification: "Both questions get at whether the textbook can actually address a zero-inflated model. If neither is true, the chapter is useless here." },
+      ]},
+      { name: 'Jordan M.', responses: [
+        { scenarioId: 1, selected: ['a','c'], justification: 'The assumed test is the most critical — but the effect size is what actually goes into the calculation, so realism matters a lot too.' },
+        { scenarioId: 2, selected: ['b','c'], justification: "I focused on whether the study is comparable — same outcome and same species seems like the most basic check before trusting their numbers." },
+        { scenarioId: 3, selected: ['a','d'], justification: "Coverage is the key issue. An intro textbook is unlikely to go into specialized model types at all." },
+      ]},
+      { name: 'Sam T.', responses: [
+        { scenarioId: 1, selected: ['a','d'], justification: 'Assumed test tells you if the architecture is right. Attrition matters because repeated measures studies lose subjects over time.' },
+        { scenarioId: 2, selected: ['a','e'], justification: 'The inflated pilot effect is the core risk. The alpha/power question matters because a different target would give a completely different n.' },
+        { scenarioId: 3, selected: ['a','b'], justification: "Zero-inflated models are niche — the textbook probably doesn't cover them. A neuro-specific text would be more likely to address behavioral count data." },
+      ]},
+      { name: 'Casey L.', responses: [
+        { scenarioId: 1, selected: ['e','f'], justification: "Default settings could be wrong for our field, and if the tool isn't validated we shouldn't trust it at all." },
+        { scenarioId: 2, selected: ['a','b'], justification: 'Pilot data inflation is the main red flag here. Outcome measure match is also important — freezing behavior can be measured different ways.' },
+        { scenarioId: 3, selected: ['a','e'], justification: 'Coverage is the primary question. An outdated edition might also miss newer approaches to handling non-standard distributions.' },
+      ]},
+      { name: 'Morgan P.', responses: [
+        { scenarioId: 1, selected: ['a','e'], justification: 'The assumed test is the structural question. Alpha and power defaults directly affect the output number, so those need checking too.' },
+        { scenarioId: 2, selected: ['a','d'], justification: 'The inflated effect size is the most likely error to propagate. Different drug mechanisms might produce very different effect sizes.' },
+        { scenarioId: 3, selected: ['c','d'], justification: "I wanted to know if the formulas could extend to non-standard models, and whether the level of the book matches what's needed." },
+      ]},
+      { name: 'Riley K.', responses: [
+        { scenarioId: 1, selected: ['a','b'], justification: 'Knowing the assumed test is essential. The hosting organization gives a sense of credibility and documentation about assumptions.' },
+        { scenarioId: 2, selected: ['a','c'], justification: 'Both questions address whether you can trust and apply the numbers from this paper to a new study.' },
+        { scenarioId: 3, selected: ['a','f'], justification: 'Coverage question is first. Recommended software might also point toward whether a more specialized tool exists for this model type.' },
+      ]},
+      { name: 'Drew N.', responses: [
+        { scenarioId: 1, selected: ['c','d'], justification: 'A realistic effect size is the most important input to any power analysis. Attrition is a known issue in longitudinal mouse studies.' },
+        { scenarioId: 2, selected: ['b','e'], justification: "The outcome measure and alpha/power choices are what make a power analysis transferable. If those don't match, the n doesn't apply." },
+        { scenarioId: 3, selected: ['a','c'], justification: "These two questions both target the same core issue: can this textbook handle a zero-inflated model? One asks directly, one asks about extensibility." },
+      ]},
+      { name: 'Avery S.', responses: [
+        { scenarioId: 1, selected: ['a','f'], justification: 'The assumed test is the structural question. Validation status tells you whether you can trust the implementation.' },
+        { scenarioId: 2, selected: ['a','b'], justification: "Pilot inflation is the primary hazard. But if the outcome measure is different, the whole comparison breaks down anyway." },
+        { scenarioId: 3, selected: ['a','d'], justification: "Coverage first. The level of the textbook also matters — introductory books won't have the depth needed for specialized models." },
+      ]},
+    ];
+
+    // ============================================================================
+    // SHARED COMPONENTS
+    // ============================================================================
+
+    function ProgressBar({ current, total }) {
+      return (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ marginBottom: 4 }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 500, color: C.darkGray }}>
+              Screen {current} of {total}
+            </span>
+          </div>
+          <div style={{ height: 8, borderRadius: 4, backgroundColor: C.lightBorder, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%',
+              width: `${(current / total) * 100}%`,
+              borderRadius: 4,
+              backgroundColor: C.purple,
+              transition: 'width 0.3s ease',
+            }} />
+          </div>
+        </div>
+      );
+    }
+
+    function InstructionCard({ title, children }) {
+      return (
+        <div style={{
+          backgroundColor: '#F0F4FF',
+          borderLeft: `4px solid ${C.blue}`,
+          borderRadius: 6,
+          padding: 16,
+          marginBottom: 16,
+        }}>
+          {title && <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 8 }}>{title}</div>}
+          {children}
+        </div>
+      );
+    }
+
+    function Btn({ children, onClick, disabled, variant = 'primary' }) {
+      const [hov, setHov] = useState(false);
+      const base = {
+        padding: '10px 20px', fontSize: '1rem', fontWeight: 600,
+        borderRadius: 8, border: '2px solid',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        transition: 'all 0.2s ease',
+      };
+      const styles = {
+        primary: {
+          backgroundColor: disabled ? C.midGray : hov ? C.purple : C.black,
+          color: C.white,
+          borderColor: disabled ? C.midGray : hov ? C.purple : C.black,
+          boxShadow: disabled ? 'none' : hov ? '0 4px 12px rgba(0,0,0,0.2)' : '0 2px 8px rgba(0,0,0,0.15)',
+          transform: hov && !disabled ? 'scale(1.02)' : 'none',
+        },
+        secondary: {
+          backgroundColor: hov && !disabled ? C.darkGray : C.light,
+          color: hov && !disabled ? C.white : C.darkGray,
+          borderColor: hov && !disabled ? C.black : C.light,
+          boxShadow: hov && !disabled ? '0 4px 12px rgba(0,0,0,0.2)' : '0 2px 8px rgba(0,0,0,0.15)',
+        },
+      };
+      return (
+        <button
+          onClick={disabled ? undefined : onClick}
+          onMouseEnter={() => setHov(true)}
+          onMouseLeave={() => setHov(false)}
+          style={{ ...base, ...styles[variant] }}
+        >
+          {children}
+        </button>
+      );
+    }
+
+    function NavBar({ onPrev, onNext, canNext, canPrev, showPrev, nextLabel, disabledMsg }) {
+      const [tip, setTip] = useState(false);
+      return (
+        <div style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '12px 32px',
+          backgroundColor: C.white,
+          borderTop: `1px solid ${C.lightBorder}`,
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.1)',
+          zIndex: 1000,
+        }}>
+          {showPrev
+            ? <Btn variant="secondary" onClick={onPrev} disabled={!canPrev}>PREVIOUS</Btn>
+            : <div />
+          }
+          <div
+            style={{ position: 'relative' }}
+            onMouseEnter={() => !canNext && setTip(true)}
+            onMouseLeave={() => setTip(false)}
+          >
+            {tip && !canNext && (
+              <div style={{
+                position: 'absolute', bottom: '110%', right: 0,
+                backgroundColor: 'rgba(0,0,0,0.85)', color: C.white,
+                fontSize: '0.8rem', padding: '8px 12px', borderRadius: 6,
+                whiteSpace: 'nowrap', pointerEvents: 'none',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+              }}>
+                {disabledMsg}
+              </div>
+            )}
+            <Btn variant="primary" onClick={onNext} disabled={!canNext}>{nextLabel}</Btn>
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================================
+    // SUMMARY PAGE
+    // ============================================================================
+    function SummaryPage({ scenarioStates }) {
+      const [tab, setTab] = useState(0);
+      const [expanded, setExpanded] = useState(null);
+
+      const scenario = SCENARIOS[tab];
+      const learnerState = scenarioStates[tab];
+
+      const allResponses = [
+        ...PARTICIPANTS.map(p => ({
+          name: p.name,
+          selected: p.responses.find(r => r.scenarioId === scenario.id)?.selected || [],
+          justification: p.responses.find(r => r.scenarioId === scenario.id)?.justification || '',
+          isLearner: false,
+        })),
+        ...(learnerState.submitted ? [{
+          name: 'You',
+          selected: learnerState.selectedQuestions,
+          justification: learnerState.justification,
+          isLearner: true,
+        }] : []),
+      ];
+
+      const counts = {};
+      scenario.questions.forEach(q => { counts[q.id] = 0; });
+      allResponses.forEach(r => r.selected.forEach(qid => { counts[qid] = (counts[qid] || 0) + 1; }));
+      const maxCount = Math.max(...Object.values(counts), 1);
+
+      const expandedItems = expanded ? allResponses.filter(r => r.selected.includes(expanded)) : [];
+
+      const changeTab = (idx) => { setTab(idx); setExpanded(null); };
+
+      return (
+        <div style={{ backgroundColor: C.light, minHeight: '100vh', paddingBottom: 100 }}>
+          <div style={{ maxWidth: 800, margin: '0 auto', padding: '24px 16px' }}>
+
+            <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 4 }}>Class Summary</div>
+            <div style={{ fontSize: '1.0rem', fontWeight: 500, color: C.darkGray, marginBottom: 20, lineHeight: 1.5 }}>
+              Each bar shows how many participants selected that question. Click a bar to read their justifications.
+            </div>
+
+            {/* Tabs */}
+            <div style={{ display: 'flex', alignItems: 'flex-end', borderBottom: `1px solid ${C.gray}` }}>
+              {SCENARIOS.map((s, idx) => {
+                const active = tab === idx;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => changeTab(idx)}
+                    style={{
+                      flex: 1, padding: '10px 12px',
+                      fontSize: '1.0rem', fontWeight: 600, cursor: 'pointer',
+                      border: `1px solid ${C.gray}`,
+                      borderBottom: active ? 'none' : `1px solid ${C.gray}`,
+                      borderTopLeftRadius: idx === 0 ? 6 : 0,
+                      borderTopRightRadius: idx === SCENARIOS.length - 1 ? 6 : 0,
+                      borderRadius: 0,
+                      marginLeft: idx > 0 ? -1 : 0,
+                      marginBottom: active ? -1 : 0,
+                      backgroundColor: active ? C.black : C.lightBorder,
+                      color: active ? C.white : C.black,
+                      position: 'relative', zIndex: active ? 2 : 1,
+                      transition: 'background-color 0.15s ease',
+                    }}
+                    onMouseEnter={e => { if (!active) e.currentTarget.style.backgroundColor = '#D5D5D5'; }}
+                    onMouseLeave={e => { if (!active) e.currentTarget.style.backgroundColor = C.lightBorder; }}
+                  >
+                    {s.title}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Tab content */}
+            <div style={{
+              backgroundColor: C.white,
+              border: `1px solid ${C.lightBorder}`,
+              borderTop: 'none',
+              borderRadius: '0 0 6px 6px',
+              padding: 24, marginBottom: 16,
+            }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {scenario.questions.map(q => {
+                  const count = counts[q.id] || 0;
+                  const pct = (count / maxCount) * 100;
+                  const isExp = expanded === q.id;
+                  const isBest = scenario.bestAnswers.includes(q.id);
+                  const clickable = count > 0;
+                  const expItems = isExp ? allResponses.filter(r => r.selected.includes(q.id)) : [];
+
+                  return (
+                    <div key={q.id}>
+                      <div
+                        onClick={() => clickable && setExpanded(prev => prev === q.id ? null : q.id)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 12,
+                          padding: '6px 8px', borderRadius: 6,
+                          cursor: clickable ? 'pointer' : 'default',
+                          backgroundColor: isExp ? 'rgba(111,0,255,0.05)' : 'transparent',
+                          transition: 'background-color 0.15s ease',
+                        }}
+                        onMouseEnter={e => { if (clickable && !isExp) e.currentTarget.style.backgroundColor = C.light; }}
+                        onMouseLeave={e => { if (!isExp) e.currentTarget.style.backgroundColor = 'transparent'; }}
+                      >
+                        <div style={{ width: 280, flexShrink: 0, fontSize: '0.9rem', fontWeight: isBest ? 700 : 500, color: C.darkGray, lineHeight: 1.4 }}>
+                          {q.text}
+                        </div>
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ flex: 1, height: 28, backgroundColor: C.lightBorder, borderRadius: 4, overflow: 'hidden' }}>
+                            <div style={{
+                              height: '100%', width: `${pct}%`,
+                              backgroundColor: isBest ? C.purple : C.blue,
+                              borderRadius: 4, transition: 'width 0.4s ease',
+                              minWidth: count > 0 ? 6 : 0,
+                            }} />
+                          </div>
+                          <div style={{ width: 24, textAlign: 'right', fontSize: '0.9rem', fontWeight: 700, color: count > 0 ? C.darkGray : C.midC }}>
+                            {count}
+                          </div>
+                          <div style={{ width: 14, fontSize: '0.75rem', color: clickable ? C.gray : 'transparent', userSelect: 'none' }}>
+                            {clickable ? (isExp ? '▲' : '▼') : ''}
+                          </div>
+                        </div>
+                      </div>
+
+                      {isExp && (
+                        <div style={{
+                          marginLeft: 8, marginTop: 6, marginBottom: 10,
+                          borderLeft: `3px solid ${C.purple}`,
+                          paddingLeft: 16,
+                          display: 'flex', flexDirection: 'column', gap: 8,
+                        }}>
+                          {expItems.map((j, i) => (
+                            <div key={i} style={{
+                              backgroundColor: j.isLearner ? 'rgba(111,0,255,0.06)' : C.light,
+                              border: `1px solid ${j.isLearner ? 'rgba(111,0,255,0.2)' : C.lightBorder}`,
+                              borderRadius: 6, padding: '10px 14px',
+                            }}>
+                              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: j.isLearner ? C.purple : C.gray, marginBottom: 4 }}>
+                                {j.name}
+                              </div>
+                              <div style={{ fontSize: '0.9rem', fontWeight: 500, color: C.darkGray, lineHeight: 1.5 }}>
+                                {j.justification}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Legend */}
+              <div style={{ display: 'flex', gap: 20, marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.lightBorder}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 14, height: 14, borderRadius: 3, backgroundColor: C.purple }} />
+                  <span style={{ fontSize: '0.8rem', fontWeight: 500, color: C.darkGray }}>Recommended first question</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 14, height: 14, borderRadius: 3, backgroundColor: C.blue }} />
+                  <span style={{ fontSize: '0.8rem', fontWeight: 500, color: C.darkGray }}>Other questions</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ============================================================================
+    // MAIN APP
+    // ============================================================================
+    function App() {
+      const [screen, setScreen] = useState(1);
+      const [states, setStates] = useState(
+        SCENARIOS.map(() => ({ selectedQuestions: [], justification: '', submitted: false }))
+      );
+
+      const isCongrats = screen === CONGRATS_SCREEN;
+      const isSummary = screen === SUMMARY_SCREEN;
+      const isScenario = screen >= 1 && screen <= TOTAL;
+      const idx = isScenario ? screen - 1 : null;
+      const scenario = isScenario ? SCENARIOS[idx] : null;
+      const state = isScenario ? states[idx] : null;
+
+      const update = (key, val) => {
+        setStates(prev => {
+          const next = [...prev];
+          next[idx] = { ...next[idx], [key]: val };
+          return next;
+        });
+      };
+
+      const toggleQ = (qid) => {
+        if (state.submitted) return;
+        const cur = state.selectedQuestions;
+        if (cur.includes(qid)) {
+          update('selectedQuestions', cur.filter(id => id !== qid));
+        } else if (cur.length < 2) {
+          update('selectedQuestions', [...cur, qid]);
+        }
+      };
+
+      const submit = () => {
+        if (state.selectedQuestions.length === 2 && state.justification.trim().length > 0) {
+          update('submitted', true);
+        }
+      };
+
+      const next = () => setScreen(s => s + 1);
+      const prev = () => setScreen(s => s - 1);
+      const canProceed = isScenario ? (state?.submitted ?? false) : true;
+
+      // ── Congrats ────────────────────────────────────────────────────────────
+      if (isCongrats) {
+        return (
+          <div style={{ backgroundColor: C.light, minHeight: '100vh', paddingBottom: 80 }}>
+            <div style={{ maxWidth: 800, margin: '0 auto', padding: '24px 16px' }}>
+              <div style={{
+                backgroundColor: C.white, border: `1px solid ${C.lightBorder}`,
+                borderRadius: 8, padding: 40, textAlign: 'center',
+              }}>
+                <div style={{ fontSize: '2rem', marginBottom: 16 }}>🎉</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 16 }}>Activity Complete</div>
+                <p style={{ fontSize: '1.0rem', fontWeight: 500, color: C.darkGray, lineHeight: 1.6, maxWidth: 560, margin: '0 auto' }}>
+                  You've practiced identifying the questions most worth asking when a student brings a sample size resource. Across each scenario, the key habit is the same: before exploring any other concern, check whether the resource's assumed analysis actually fits the study's design. That one check catches the most common and most consequential mismatches.
+                </p>
+              </div>
+            </div>
+            <NavBar onPrev={prev} onNext={() => {}} canNext={false} canPrev={true} showPrev={true} nextLabel="COMPLETE ACTIVITY" disabledMsg="" />
+          </div>
+        );
+      }
+
+      // ── Summary ─────────────────────────────────────────────────────────────
+      if (isSummary) {
+        return (
+          <>
+            <SummaryPage scenarioStates={states} />
+            <NavBar onPrev={prev} onNext={next} canNext={true} canPrev={true} showPrev={true} nextLabel="COMPLETE ACTIVITY" disabledMsg="" />
+          </>
+        );
+      }
+
+      // ── Scenario ─────────────────────────────────────────────────────────────
+      const bestIncluded = scenario.bestAnswers.some(id => state.selectedQuestions.includes(id));
+      const enough = state.selectedQuestions.length === 2;
+      const canSubmit = enough && state.justification.trim().length > 0;
+      const countMsg = state.selectedQuestions.length === 0 ? 'Select 2 questions'
+        : state.selectedQuestions.length === 1 ? '1 of 2 selected' : '2 of 2 selected';
+
+      return (
+        <div style={{ backgroundColor: C.light, minHeight: '100vh', paddingBottom: 100 }}>
+          <div style={{ maxWidth: 800, margin: '0 auto', padding: '24px 16px' }}>
+
+            <ProgressBar current={screen} total={TOTAL} />
+
+            <InstructionCard title="Evaluate This Resource">
+              <p style={{ fontSize: '1.0rem', fontWeight: 500, color: C.darkGray, margin: 0, lineHeight: 1.5 }}>
+                A student is planning their study and has found a resource to help them choose a sample size. Review their project and the resource they plan to use, then choose <strong>which two questions you would ask first</strong>. We want to help the student reflect on key features relevant to their choice, but we don't want to overwhelm them by asking every possible question. Justify your choices below.
+              </p>
+            </InstructionCard>
+
+            {/* Side-by-side panels */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+              <div style={{ flex: 1, backgroundColor: '#F0F4FF', borderLeft: `4px solid ${C.blue}`, borderRadius: 6, padding: 16 }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: C.blue, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+                  The Study
+                </div>
+                <ul style={{ margin: 0, padding: '0 0 0 16px', listStyle: 'disc' }}>
+                  {[
+                    ['Species', scenario.study.species],
+                    ['Design', scenario.study.design],
+                    ['Outcome', scenario.study.outcome],
+                    ['Analysis', scenario.study.analysis],
+                  ].map(([label, val]) => (
+                    <li key={label} style={{ fontSize: '1.0rem', fontWeight: 500, color: C.darkGray, lineHeight: 1.5, marginBottom: 4 }}>
+                      <strong>{label}:</strong> {val}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div style={{ flex: 1, backgroundColor: C.white, border: `1px solid ${C.lightBorder}`, borderRadius: 6, padding: 16 }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: C.gray, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+                  The Resource
+                </div>
+                <div style={{ fontSize: '1.0rem', fontWeight: 600, color: C.black, marginBottom: 10, lineHeight: 1.4 }}>
+                  {scenario.resource.name}
+                </div>
+                <ul style={{ margin: 0, padding: '0 0 0 16px', listStyle: 'disc' }}>
+                  {scenario.resource.details.map((d, i) => (
+                    <li key={i} style={{ fontSize: '1.0rem', fontWeight: 500, color: C.darkGray, lineHeight: 1.5, marginBottom: i < scenario.resource.details.length - 1 ? 4 : 0 }}>
+                      {d}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {/* Question selection */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+                <div style={{ fontSize: '1.0rem', fontWeight: 700, color: C.black }}>
+                  Which two questions would you choose to ask first?
+                </div>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: enough ? C.green : C.gray, transition: 'color 0.2s ease' }}>
+                  {countMsg}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {scenario.questions.map(q => {
+                  const sel = state.selectedQuestions.includes(q.id);
+                  const maxed = !sel && state.selectedQuestions.length === 2;
+
+                  return (
+                    <div
+                      key={q.id}
+                      onClick={() => !state.submitted && toggleQ(q.id)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '12px 16px', borderRadius: 8,
+                        border: `2px solid ${sel ? C.purple : C.lightBorder}`,
+                        backgroundColor: sel ? 'rgba(111,0,255,0.08)' : maxed ? C.light : C.white,
+                        cursor: state.submitted ? 'default' : maxed ? 'not-allowed' : 'pointer',
+                        transition: 'all 0.2s ease',
+                        opacity: maxed ? 0.5 : 1,
+                        boxShadow: sel ? '0 2px 8px rgba(111,0,255,0.12)' : 'none',
+                      }}
+                      onMouseEnter={e => {
+                        if (!state.submitted && !sel && !maxed) {
+                          e.currentTarget.style.borderColor = C.purple;
+                          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                          e.currentTarget.style.transform = 'translateY(-1px)';
+                        }
+                      }}
+                      onMouseLeave={e => {
+                        if (!state.submitted && !sel) {
+                          e.currentTarget.style.borderColor = C.lightBorder;
+                          e.currentTarget.style.boxShadow = 'none';
+                          e.currentTarget.style.transform = 'none';
+                        }
+                      }}
+                    >
+                      <div style={{
+                        width: 18, height: 18, borderRadius: 4, flexShrink: 0,
+                        border: `2px solid ${sel ? C.purple : C.midC}`,
+                        backgroundColor: sel ? C.purple : 'transparent',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'all 0.15s ease',
+                      }}>
+                        {sel && (
+                          <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                            <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </div>
+                      <span style={{ fontSize: '1.0rem', fontWeight: 500, color: C.darkGray, lineHeight: 1.4 }}>
+                        {q.text}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Justification */}
+            {enough && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: '1.0rem', fontWeight: 700, color: C.black, marginBottom: 8 }}>
+                  Why would you ask these two questions first?
+                </div>
+                <textarea
+                  value={state.justification}
+                  onChange={e => !state.submitted && update('justification', e.target.value)}
+                  disabled={state.submitted}
+                  placeholder="Explain your reasoning..."
+                  rows={4}
+                  style={{
+                    width: '100%', padding: 12,
+                    fontSize: '1.0rem', fontWeight: 500, color: C.darkGray,
+                    border: `1px solid ${C.lightBorder}`, borderRadius: 6,
+                    resize: 'vertical', lineHeight: 1.5,
+                    backgroundColor: state.submitted ? C.light : C.white,
+                    outline: 'none',
+                  }}
+                />
+                {!state.submitted && (
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                    <Btn variant="primary" onClick={submit} disabled={!canSubmit}>Submit</Btn>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Rationale */}
+            {state.submitted && (
+              <div style={{
+                backgroundColor: bestIncluded ? '#F0FFF4' : '#FFF8F0',
+                border: `1px solid ${bestIncluded ? C.green : C.orange}`,
+                borderLeft: `4px solid ${bestIncluded ? C.green : C.orange}`,
+                borderRadius: 6, padding: 16, marginBottom: 16,
+              }}>
+                <div style={{
+                  fontSize: '0.8rem', fontWeight: 700,
+                  color: bestIncluded ? C.green : C.orange,
+                  textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8,
+                }}>
+                  {bestIncluded ? '✓ Strong choice' : 'Consider this'}
+                </div>
+                {!bestIncluded && (
+                  <div style={{ fontSize: '1.0rem', fontWeight: 500, color: C.darkGray, marginBottom: 8, fontStyle: 'italic' }}>
+                    Here's what to focus on for this type of resource:
+                  </div>
+                )}
+                <p style={{ fontSize: '1.0rem', fontWeight: 500, color: C.darkGray, margin: 0, lineHeight: 1.6 }}>
+                  {scenario.rationale}
+                </p>
+              </div>
+            )}
+
+          </div>
+
+          <NavBar
+            onPrev={prev} onNext={next}
+            canNext={canProceed} canPrev={screen > 1}
+            showPrev={screen > 1}
+            nextLabel={screen === TOTAL ? 'PROCEED TO SUMMARY' : 'NEXT'}
+            disabledMsg="Submit your justification to continue"
+          />
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
