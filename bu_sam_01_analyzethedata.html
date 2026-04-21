@@ -574,8 +574,11 @@ function Scatterplot({ showRegression = false }) {
   const upperPath = ciData.map((d, i) =>
     `${i === 0 ? 'M' : 'L'}${scaleX(d.x).toFixed(1)},${scaleY(d.upper).toFixed(1)}`
   ).join(' ');
-  const lowerPathRev = [...ciData].reverse().map((d, i) =>
+  const lowerPath = ciData.map((d, i) =>
     `${i === 0 ? 'M' : 'L'}${scaleX(d.x).toFixed(1)},${scaleY(d.lower).toFixed(1)}`
+  ).join(' ');
+  const lowerPathRev = [...ciData].reverse().map((d, i) =>
+    `L${scaleX(d.x).toFixed(1)},${scaleY(d.lower).toFixed(1)}`
   ).join(' ');
   const ciPath = upperPath + ' ' + lowerPathRev + ' Z';
 
@@ -594,7 +597,7 @@ function Scatterplot({ showRegression = false }) {
       {showRegression && (
         <>
           <path d={upperPath} fill="none" stroke={C.accent} strokeWidth="1" strokeDasharray="4 3" opacity="0.5" />
-          <path d={lowerPathRev} fill="none" stroke={C.accent} strokeWidth="1" strokeDasharray="4 3" opacity="0.5" />
+          <path d={lowerPath} fill="none" stroke={C.accent} strokeWidth="1" strokeDasharray="4 3" opacity="0.5" />
         </>
       )}
       {DATA.map((d, i) => (
@@ -1088,7 +1091,7 @@ function Activity() {
   function goNext() {
     if (!canProceed()) return;
     if (screen === TOTAL_SCREENS) {
-      setScreen(8);
+      setScreen(7);
     } else {
       setScreen(s => s + 1);
     }
