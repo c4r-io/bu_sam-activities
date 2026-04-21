@@ -45,9 +45,8 @@ const C = {
 // 4: Feedback 2
 // 5: Screen 3 (regression + multiselect)
 // 6: Feedback 3
-// 7: Final results
-// 8: Congrats (excluded from progress count)
-const TOTAL_SCREENS = 7;
+// 7: Congrats (excluded from progress count)
+const TOTAL_SCREENS = 6;
 
 // ─── Simulated dataset ────────────────────────────────────────────────────────
 // X ~ Normal(0,1) clamped ±2, Y = 0.9*X + Normal(0,10) + 73
@@ -116,10 +115,10 @@ const S1_FEEDBACK = {
 
 // ─── Checkbox feedback ────────────────────────────────────────────────────────
 const OPTION_FEEDBACK = {
-  'A larger sample of data points': 'Collecting more data points (i.e. a bigger N) will make it easier to detect an effect by reducing the influence of chance on the result. Especially if the effect is smaller than we thought, a larger sample can decrease the risk of missing it. More data points may narrow the confidence interval, allowing us to firmly reject (or fail to reject) the null hypothesis if a relationship exists.',
+  'A larger sample of data points': 'Collecting more data points (i.e. a bigger N) will make it easier to detect an effect by increasing the precision of effect estimates, reducing the influence of chance or random variability on the result. More data points may narrow the confidence interval, allowing us to firmly reject (or fail to reject) the null hypothesis if a relationship exists.',
   'A steeper regression line': 'If this data had a steeper slope, it would suggest that changes in Protein X expression are associated with larger differences in lifespan. A stronger relationship would be easier to distinguish from random variation. Importantly, the slope must be steeper than the standard error, otherwise we cannot reject the null hypothesis.',
   'Narrower confidence intervals': 'If this data had narrower confidence intervals, it would reduce uncertainty around the estimate. The wide confidence intervals in this dataset make it impossible to determine whether a positive, negative, or null relationship exists. By decreasing the error, the possibility of detecting a true effect is greater.',
-  'Perform more statistical tests': 'Using different statistical tests to search for a positive result is a form of p-hacking that will not change the underlying data or reduce the uncertainty. The ambiguity in these results comes from the data itself.',
+  'Perform more statistical tests': 'Using different statistical tests to search for a positive result will not change the underlying data or reduce the uncertainty. The ambiguity in these results comes from the data itself.',
   'Repeat this experiment in a different population': 'Data from a different population would produce a separate result that may still have the same uncertainty (small slope, wide confidence intervals). This does not resolve whether the effect is real in this sample.',
 };
 const HELPFUL_OPTIONS = new Set(['A larger sample of data points', 'A steeper regression line', 'Narrower confidence intervals']);
@@ -575,8 +574,11 @@ function Scatterplot({ showRegression = false }) {
   const upperPath = ciData.map((d, i) =>
     `${i === 0 ? 'M' : 'L'}${scaleX(d.x).toFixed(1)},${scaleY(d.upper).toFixed(1)}`
   ).join(' ');
-  const lowerPathRev = [...ciData].reverse().map((d, i) =>
+  const lowerPath = ciData.map((d, i) =>
     `${i === 0 ? 'M' : 'L'}${scaleX(d.x).toFixed(1)},${scaleY(d.lower).toFixed(1)}`
+  ).join(' ');
+  const lowerPathRev = [...ciData].reverse().map((d, i) =>
+    `L${scaleX(d.x).toFixed(1)},${scaleY(d.lower).toFixed(1)}`
   ).join(' ');
   const ciPath = upperPath + ' ' + lowerPathRev + ' Z';
 
@@ -595,7 +597,7 @@ function Scatterplot({ showRegression = false }) {
       {showRegression && (
         <>
           <path d={upperPath} fill="none" stroke={C.accent} strokeWidth="1" strokeDasharray="4 3" opacity="0.5" />
-          <path d={lowerPathRev} fill="none" stroke={C.accent} strokeWidth="1" strokeDasharray="4 3" opacity="0.5" />
+          <path d={lowerPath} fill="none" stroke={C.accent} strokeWidth="1" strokeDasharray="4 3" opacity="0.5" />
         </>
       )}
       {DATA.map((d, i) => (
@@ -654,7 +656,7 @@ function Screen1({ s1Predict, setS1Predict, s1Justification, setS1Justification,
         <textarea
           value={s1Justification}
           onChange={e => setS1Justification(e.target.value)}
-          placeholder="Describe what you observe in the scatterplot..."
+          placeholder=""
           style={{
             width: '100%', minHeight: 90, padding: '10px 12px',
             fontSize: '1rem', fontWeight: 500, color: C.dark,
@@ -768,7 +770,7 @@ function Screen2({ s2Conclude, setS2Conclude, s2Justification, setS2Justificatio
         <textarea
           value={s2Justification}
           onChange={e => setS2Justification(e.target.value)}
-          placeholder="Describe what you see in the regression and confidence interval..."
+          placeholder=""
           style={{
             width: '100%', minHeight: 90, padding: '10px 12px',
             fontSize: '1rem', fontWeight: 500, color: C.dark,
@@ -854,7 +856,7 @@ function Screen3({ s3What, setS3What, s3WhatSubmitted, setS3WhatSubmitted }) {
       </div>
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: '1rem', fontWeight: 700, color: C.black, marginBottom: 4 }}>
-          What would you need to see to confidently know if there is a relationship?
+          Which of the following changes would increase your confidence in identifying a relationship?
         </div>
         <div style={{ fontSize: '0.8rem', fontWeight: 500, color: C.mid, marginBottom: 12 }}>
           Select all that apply
@@ -906,15 +908,6 @@ function Feedback3({ s3What }) {
       <CollapsibleStudyOverview />
 
       <div style={{
-        padding: '14px 16px', marginBottom: 20, borderRadius: 8,
-        border: `1.5px solid ${C.blue}`,
-        background: C.blueBg,
-        fontSize: '1rem', fontWeight: 500, color: C.dark,
-      }}>
-        The ambiguity of this data and subsequent analysis reflects a lack of statistical precision, not necessarily the absence of a true effect. To determine whether Protein X genuinely predicts lifespan, researchers would need a larger sample — more data points would narrow the confidence interval and make it possible to distinguish a real signal from random variation. Changing the analysis method or collecting data from a different population would not address this fundamental limitation.
-      </div>
-
-      <div style={{
         background: C.white, border: `1px solid ${C.border}`,
         borderRadius: 10, padding: 20, marginBottom: 20,
       }}>
@@ -922,13 +915,28 @@ function Feedback3({ s3What }) {
           Response Summary
         </div>
         <DistributionBar
-          label="What would you need to see to confidently know if there is a relationship?"
+          label="Which of the following changes would increase your confidence in identifying a relationship?"
           options={Object.keys(s3What)}
           counts={Object.keys(s3What).map((opt, i) => PEER_DIST.s3what[i] + (s3What[opt] ? 1 : 0))}
           total={PEER_DIST.s3what.reduce((a, b) => a + b, 0) + Object.values(s3What).filter(Boolean).length}
           userResponses={userSelected}
           correctResponses={correctOptions}
         />
+      </div>
+
+      <div style={{
+        padding: '14px 16px', marginBottom: 20, borderRadius: 8,
+        border: `1.5px solid ${C.blue}`,
+        background: C.blueBg,
+      }}>
+        <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 10 }}>
+          What to do next?
+        </div>
+        <div style={{ fontSize: '1rem', fontWeight: 500, color: C.dark }}>
+          These data are very ambiguous! There is no obvious trend. But… the slope we measured isn't zero. How confidently can we rule out the possibility that a true relationship is hiding within these data? If there was a steeper slope then those confidence intervals wouldn't be such a problem. But failing that, what we really need is to shrink those confidence intervals around our line until we know with higher certainty what the effect really is.
+          <br /><br />
+          What might it take to accomplish that?
+        </div>
       </div>
     </div>
   );
@@ -1083,7 +1091,7 @@ function Activity() {
   function goNext() {
     if (!canProceed()) return;
     if (screen === TOTAL_SCREENS) {
-      setScreen(8);
+      setScreen(7);
     } else {
       setScreen(s => s + 1);
     }
@@ -1097,7 +1105,7 @@ function Activity() {
     }
   }
 
-  const isCongratsScreen = screen === 8;
+  const isCongratsScreen = screen === 7;
 
   return (
     <div style={{ background: C.lightGray, minHeight: '100vh', fontFamily: 'system-ui, sans-serif' }}>
@@ -1138,14 +1146,7 @@ function Activity() {
         {screen === 6 && (
           <Feedback3 s3What={s3What} />
         )}
-        {screen === 7 && (
-          <FinalResults
-            s1Predict={s1Predict} s1Confidence={s1Confidence} s1Justification={s1Justification}
-            s2Conclude={s2Conclude} s2Justification={s2Justification}
-            s3What={s3What}
-          />
-        )}
-        {screen === 8 && <CongratsScreen />}
+        {screen === 7 && <CongratsScreen />}
 
       </div>
 
