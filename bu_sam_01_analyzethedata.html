@@ -124,27 +124,85 @@ const OPTION_FEEDBACK = {
 const HELPFUL_OPTIONS = new Set(['A larger sample of data points', 'A steeper regression line', 'Narrower confidence intervals']);
 
 // ─── Simulated peer data ──────────────────────────────────────────────────────
-// TODO: DEV - Replace with real stored responses from database
+// TODO: DEV - Replace with real stored responses from database.
+// TODO: DEV - Peer responses must be scoped to the student's GROUP (cohort /
+//             section / course instance), not a global pool. See DEV NOTE on
+//             the Feedback 1 screen. All PEER_* structures below are stand-ins
+//             for a per-group aggregate query keyed on { activityId, groupId }.
 const PEER_DIST = {
   s1predict: [28, 18, 54],
-  s1confidence: [42, 45, 13],
+  s1confidence: [42, 45, 13], // aggregated; used only by the final summary screen
   s2conclude: [15, 8, 77],
   s3what: [71, 38, 55, 12, 19],
+  // Confidence distribution broken down by prediction choice.
+  // Rows total to match s1predict counts above.
+  //            Not / Somewhat / Very
+  s1confidenceByPredict: {
+    'Yes':                [5, 15, 8],   // 28
+    'No':                 [4, 10, 4],   // 18
+    'Impossible to tell': [33, 20, 1],  // 54
+  },
 };
 
-const PEER_TEXT_S1 = [
-  "The points seem pretty scattered — I can't really see a clear trend going up or down.",
-  "There might be a slight upward pattern but it's hard to say. Could just be noise.",
-  "The data looks random to me. Hard to draw any conclusions without more analysis.",
-  "I see a weak positive relationship maybe, but the scatter is really wide.",
-];
+// Peer justifications grouped by which prediction the peer chose.
+// TODO: DEV - Replace with real stored responses, filtered to the student's group.
+// TODO: DEV - Justification ordering should PREFERENCE SEEDED responses (curated
+//             by instructors) over organic peer responses in the display order.
+//             Seeded entries should appear first in each list so students always
+//             see a strong, diverse set of examples — especially in new or
+//             sparsely-populated cohorts. Recommended shape:
+//               { text: string, seeded: boolean, createdAt: timestamp }
+//             Sort: seeded first, then organic peers by recency or randomized.
+//             This applies to both PEER_TEXT_S1_BY_PREDICT and
+//             PEER_TEXT_S2_BY_CONCLUDE below, and to any similar structures
+//             added in future screens.
+const PEER_TEXT_S1_BY_PREDICT = {
+  'Yes': [
+    "I see a weak positive relationship maybe, but the scatter is really wide.",
+    "Points on the right side of the plot look higher on average than points on the left.",
+    "There's a slight upward trend visible if I squint at it.",
+    "It looks like higher Protein X expression lines up with longer lifespan, roughly.",
+    "A few of the highest lifespans are at the top end of Protein X, which suggests a relationship.",
+  ],
+  'No': [
+    "I don't see any pattern — the points look randomly arranged.",
+    "If there were a real correlation I'd expect the cloud to lean one way, and it doesn't.",
+    "The spread at each Protein X level is enormous. That's not what a real effect looks like.",
+    "Looks like noise to me.",
+  ],
+  'Impossible to tell': [
+    "The points seem pretty scattered — I can't really see a clear trend going up or down.",
+    "There might be a slight upward pattern but it's hard to say. Could just be noise.",
+    "The data looks random to me. Hard to draw any conclusions without more analysis.",
+    "Too much scatter to call it either way without running a statistical test.",
+    "I'd want to see a regression line and confidence interval before committing.",
+    "My eye can argue either direction on this plot, which means I shouldn't trust either.",
+  ],
+};
 
-const PEER_TEXT_S2 = [
-  "The line goes up but the confidence interval is really wide — feels uncertain.",
-  "Even with the regression line it's hard to be sure. The band crosses a lot of the data.",
-  "The slope looks positive but the error range is huge. Could easily be zero.",
-  "I wasn't expecting the CI to be that wide. Makes me less confident there's a real effect.",
-];
+const PEER_TEXT_S2_BY_CONCLUDE = {
+  'Yes, the data supports the hypothesis': [
+    "The slope is clearly positive — the regression line is going up.",
+    "The line rises across the full range of Protein X. That's an effect.",
+    "Positive trend is visible. The CI is wide but the midline stays above zero.",
+    "I trust the upward trend — the line wouldn't look like that without a real relationship.",
+    "Even with the uncertainty, the best estimate is a positive slope.",
+  ],
+  'No, the data does not support the hypothesis': [
+    "The confidence interval easily includes a flat line, so there's no effect to speak of.",
+    "The band is so wide that zero slope is well within it.",
+    "Too much noise — I'd call this no relationship.",
+    "The CI covers negative slopes too. That's not a correlation in any meaningful sense.",
+  ],
+  'The data is inconclusive': [
+    "The confidence interval is huge — anything from positive to flat fits the data.",
+    "The slope is positive but the band overlaps zero easily. We'd need more data to tell.",
+    "I can't rule out either a real effect or no effect. Both are consistent with the CI.",
+    "The regression suggests something, but with a CI this wide I wouldn't commit either way.",
+    "We need a narrower confidence interval before concluding anything.",
+    "Statistically, the CI crossing zero means we can't distinguish this from no correlation.",
+  ],
+};
 
 // ─── Study overview data ──────────────────────────────────────────────────────
 const OVERVIEW_ROWS = [
@@ -543,6 +601,275 @@ function UserResponseBox({ label, value }) {
   );
 }
 
+// ─── DevNote ──────────────────────────────────────────────────────────────────
+// Visible annotation for prototype review. Not shown in production UI.
+// TODO: DEV - Remove before release.
+function DevNote({ children }) {
+  return (
+    <div style={{
+      border: `1.5px dashed ${C.warningBorder}`,
+      background: C.warningBg,
+      borderRadius: 8,
+      padding: '10px 14px',
+      marginBottom: 16,
+      fontSize: '0.85rem',
+      color: C.dark,
+      lineHeight: 1.5,
+    }}>
+      <div style={{
+        fontSize: '0.7rem', fontWeight: 700, color: C.warningBorder,
+        letterSpacing: '0.08em', marginBottom: 4, textTransform: 'uppercase',
+      }}>
+        Dev Note
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ─── ResponseTabs ─────────────────────────────────────────────────────────────
+// Folder-style tabs that group peer responses by which option they chose.
+// Default tab is the user's own selection. Each tab contains:
+//   - (optional) a per-option confidence distribution
+//   - a paginated list of justifications from peers who chose that option
+// On the user's own tab, their justification is pinned to the top of the list
+// and clearly marked.
+// Props:
+//   options               full option strings (must match user's stored answer)
+//   tabLabels             short labels for the tab headers (defaults to options)
+//   peerTextByOption      { [option]: string[] } justifications grouped by choice
+//   peerConfidenceByOption (optional) { [option]: number[] } counts per confidence
+//   confidenceOptions     (optional) label array, e.g. ['Not confident', ...]
+//   userOption            the user's choice (tab opens here by default)
+//   userConfidence        (optional) user's confidence rating
+//   userJustification     user's free-text justification
+// TODO: Replace with shared Tabs / Pagination components when available.
+function ResponseTabs({
+  options,
+  tabLabels,
+  peerTextByOption,
+  peerConfidenceByOption,
+  confidenceOptions,
+  userOption,
+  userConfidence,
+  userJustification,
+}) {
+  const labels = tabLabels || options;
+  const initialIdx = Math.max(0, options.indexOf(userOption));
+  const [activeIdx, setActiveIdx] = useState(initialIdx);
+  const [page, setPage] = useState(0);
+
+  const handleTabClick = (idx) => {
+    setActiveIdx(idx);
+    setPage(0);
+  };
+
+  const activeOption = options[activeIdx];
+  const activeLabel = labels[activeIdx];
+  const isOwnTab = activeOption === userOption;
+
+  const showConfidence = !!peerConfidenceByOption && !!confidenceOptions;
+  const confidenceCounts = showConfidence
+    ? (peerConfidenceByOption[activeOption] || new Array(confidenceOptions.length).fill(0))
+    : [];
+  const confidenceTotal = confidenceCounts.reduce((a, b) => a + b, 0);
+  const confidenceUser = isOwnTab ? userConfidence : '';
+
+  const peerJustifications = peerTextByOption[activeOption] || [];
+  const hasOwnEntry = isOwnTab && userJustification && userJustification.trim().length > 0;
+  const entries = [
+    ...(hasOwnEntry ? [{ text: userJustification, isUser: true }] : []),
+    ...peerJustifications.map(t => ({ text: t, isUser: false })),
+  ];
+
+  const PAGE_SIZE = 3;
+  const totalPages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
+  const pageStart = page * PAGE_SIZE;
+  const pageItems = entries.slice(pageStart, pageStart + PAGE_SIZE);
+
+  return (
+    <div style={{ marginTop: 20 }}>
+      {/* Tab row */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        borderBottom: '1px solid #9E9E9E',
+      }}>
+        {options.map((opt, i) => {
+          const isActive = activeIdx === i;
+          const isFirst = i === 0;
+          const isLast = i === options.length - 1;
+          return (
+            <div
+              key={opt}
+              onClick={() => handleTabClick(i)}
+              style={{
+                flex: 1,
+                padding: '10px 12px',
+                background: isActive ? C.black : '#E0E0E0',
+                color: isActive ? C.white : C.black,
+                border: '1px solid #9E9E9E',
+                borderBottom: isActive ? 'none' : '1px solid #9E9E9E',
+                borderTopLeftRadius: isFirst ? 6 : 0,
+                borderTopRightRadius: isLast ? 6 : 0,
+                marginLeft: isFirst ? 0 : -1,
+                marginBottom: -1,
+                cursor: 'pointer',
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                textAlign: 'center',
+                position: 'relative',
+                zIndex: isActive ? 1 : 0,
+                userSelect: 'none',
+                transition: 'background-color 0.15s ease',
+              }}
+            >
+              {labels[i]}
+              {opt === userOption && (
+                <span style={{
+                  marginLeft: 6,
+                  fontSize: '0.7rem',
+                  fontWeight: 500,
+                  opacity: 0.85,
+                }}>
+                  (your answer)
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Content panel */}
+      <div style={{
+        border: '1px solid #E0E0E0',
+        borderTop: 'none',
+        background: C.white,
+        padding: 16,
+        borderBottomLeftRadius: 8,
+        borderBottomRightRadius: 8,
+      }}>
+        {/* Confidence breakdown (optional) */}
+        {showConfidence && (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: C.black, marginBottom: 10 }}>
+              Confidence — peers who chose "{activeLabel}" (n = {confidenceTotal})
+            </div>
+            <DistributionBar
+              label=""
+              options={confidenceOptions}
+              counts={confidenceCounts}
+              total={confidenceTotal}
+              userResponses={confidenceUser}
+            />
+          </div>
+        )}
+
+        {/* Paginated justifications */}
+        <div>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+            marginBottom: 10, gap: 12, flexWrap: 'wrap',
+          }}>
+            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: C.black }}>
+              Justifications from peers who chose "{activeLabel}"
+            </div>
+            {entries.length > 0 && (
+              <div style={{ fontSize: '0.75rem', fontWeight: 500, color: C.mid }}>
+                Showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, entries.length)} of {entries.length}
+              </div>
+            )}
+          </div>
+
+          {entries.length === 0 ? (
+            <div style={{
+              padding: '10px 14px', borderRadius: 8,
+              background: C.lightGray, border: `1px dashed ${C.border}`,
+              fontSize: '0.9rem', color: C.mid, fontStyle: 'italic',
+            }}>
+              No peer justifications available for this answer.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {pageItems.map((entry, i) => (
+                <div key={pageStart + i} style={{
+                  padding: '10px 14px', borderRadius: 8,
+                  background: entry.isUser ? C.accentLight : C.lightGray,
+                  border: entry.isUser ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
+                  fontSize: '0.9rem', fontWeight: 500, color: C.dark,
+                  fontStyle: entry.isUser ? 'normal' : 'italic',
+                }}>
+                  {entry.isUser && (
+                    <div style={{
+                      display: 'inline-block',
+                      fontSize: '0.7rem', fontWeight: 700, color: C.accent,
+                      background: C.white, border: `1px solid ${C.accent}`,
+                      borderRadius: 4, padding: '1px 6px',
+                      marginBottom: 6,
+                      letterSpacing: '0.04em',
+                    }}>
+                      YOUR RESPONSE
+                    </div>
+                  )}
+                  <div>
+                    {entry.isUser ? entry.text : `"${entry.text}"`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Pagination controls */}
+          {totalPages > 1 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              gap: 12, marginTop: 14,
+            }}>
+              <button
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={page === 0}
+                style={{
+                  background: page === 0 ? C.white : C.lightGray,
+                  color: page === 0 ? C.mid : C.dark,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 6,
+                  padding: '6px 14px',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  cursor: page === 0 ? 'not-allowed' : 'pointer',
+                  transition: 'background-color 0.15s ease',
+                }}
+              >
+                ← Prev
+              </button>
+              <span style={{ fontSize: '0.8rem', fontWeight: 500, color: C.dark, minWidth: 80, textAlign: 'center' }}>
+                Page {page + 1} of {totalPages}
+              </span>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={page === totalPages - 1}
+                style={{
+                  background: page === totalPages - 1 ? C.white : C.lightGray,
+                  color: page === totalPages - 1 ? C.mid : C.dark,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 6,
+                  padding: '6px 14px',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                  cursor: page === totalPages - 1 ? 'not-allowed' : 'pointer',
+                  transition: 'background-color 0.15s ease',
+                }}
+              >
+                Next →
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Scatterplot ──────────────────────────────────────────────────────────────
 function Scatterplot({ showRegression = false }) {
   const W = 560, H = 340;
@@ -651,7 +978,7 @@ function Screen1({ s1Predict, setS1Predict, s1Justification, setS1Justification,
       </div>
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: '1rem', fontWeight: 700, color: C.black, marginBottom: 8 }}>
-          Why?
+          What led you to this answer?
         </div>
         <textarea
           value={s1Justification}
@@ -710,6 +1037,23 @@ function Feedback1({ s1Predict, s1Confidence, s1Justification }) {
         <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 16 }}>
           Response Summary
         </div>
+
+        <DevNote>
+          The peer distributions and justifications shown here should be scoped to the
+          student's <strong>group</strong> (cohort / section / course instance) rather than
+          a global pool. Dev needs: group-aware aggregate query keyed on
+          <code style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}> {'{ activityId, groupId }'}</code>,
+          a minimum-n threshold (e.g. hide per-tab breakdowns when n &lt; 3 to avoid
+          deanonymizing early respondents), and a fallback state for new groups with no
+          peer data yet.
+          <div style={{ marginTop: 8 }}>
+            <strong>Justification ordering:</strong> preference <em>seeded</em> (instructor-curated)
+            responses over organic peer responses in each tab's list. Seeded entries should
+            appear first so students always see a strong, diverse set of examples — especially
+            in sparse cohorts.
+          </div>
+        </DevNote>
+
         <DistributionBar
           label="Does Protein X expression appear correlated with lifespan?"
           options={['Yes', 'No', 'Impossible to tell']}
@@ -721,19 +1065,16 @@ function Feedback1({ s1Predict, s1Confidence, s1Justification }) {
           total={PEER_DIST.s1predict.reduce((a, b) => a + b, 0) + 1}
           userResponses={s1Predict}
         />
-        <DistributionBar
-          label="How confident are you?"
-          options={['Not confident', 'Somewhat confident', 'Very confident']}
-          counts={[
-            PEER_DIST.s1confidence[0] + (s1Confidence === 'Not confident' ? 1 : 0),
-            PEER_DIST.s1confidence[1] + (s1Confidence === 'Somewhat confident' ? 1 : 0),
-            PEER_DIST.s1confidence[2] + (s1Confidence === 'Very confident' ? 1 : 0),
-          ]}
-          total={PEER_DIST.s1confidence.reduce((a, b) => a + b, 0) + 1}
-          userResponses={s1Confidence}
+
+        <ResponseTabs
+          options={['Yes', 'No', 'Impossible to tell']}
+          peerTextByOption={PEER_TEXT_S1_BY_PREDICT}
+          peerConfidenceByOption={PEER_DIST.s1confidenceByPredict}
+          confidenceOptions={['Not confident', 'Somewhat confident', 'Very confident']}
+          userOption={s1Predict}
+          userConfidence={s1Confidence}
+          userJustification={s1Justification}
         />
-        <UserResponseBox label="Your justification" value={s1Justification} />
-        <PeerTextToggle responses={PEER_TEXT_S1} />
       </div>
     </div>
   );
@@ -753,12 +1094,12 @@ function Screen2({ s2Conclude, setS2Conclude, s2Justification, setS2Justificatio
       </div>
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: '1rem', fontWeight: 700, color: C.black, marginBottom: 12 }}>
-          Based on this analysis, what would you conclude?
+          Based on this analysis, is there support for the hypothesis "Expression level of Protein X is a biomarker for longevity"?
         </div>
         {[
-          'Protein X is correlated with lifespan',
-          'Protein X is not correlated with lifespan',
-          "We can't conclude either way",
+          'Yes, the data supports the hypothesis',
+          'No, the data does not support the hypothesis',
+          'The data is inconclusive',
         ].map(opt => (
           <MCQOption key={opt} label={opt} selected={s2Conclude === opt} onClick={() => setS2Conclude(opt)} />
         ))}
@@ -786,10 +1127,10 @@ function Screen2({ s2Conclude, setS2Conclude, s2Justification, setS2Justificatio
 
 // ─── Feedback 2 ───────────────────────────────────────────────────────────────
 function Feedback2({ s2Conclude, s2Justification }) {
-  const isPositive = s2Conclude === "We can't conclude either way";
-  const feedbackText = s2Conclude === 'Protein X is correlated with lifespan'
+  const isPositive = s2Conclude === 'The data is inconclusive';
+  const feedbackText = s2Conclude === 'Yes, the data supports the hypothesis'
     ? "The positive slope is suggestive, but the wide confidence interval means a conclusion in either direction is not yet supported."
-    : s2Conclude === 'Protein X is not correlated with lifespan'
+    : s2Conclude === 'No, the data does not support the hypothesis'
       ? "Skepticism is reasonable, but the wide confidence interval means a conclusion in either direction is not yet supported."
       : "With a confidence interval this wide, a conclusion in either direction is not yet supported.";
 
@@ -822,28 +1163,47 @@ function Feedback2({ s2Conclude, s2Justification }) {
         <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 16 }}>
           Response Summary
         </div>
+
+        <DevNote>
+          As on the Screen 1 feedback, peer responses here should be scoped to the
+          student's <strong>group</strong> (cohort / section / course instance), with a
+          minimum-n threshold on the per-tab breakdowns and a fallback for new groups
+          with no peer data yet. Note: Screen 2 has no confidence question, so only the
+          justifications list appears inside each tab.
+          <div style={{ marginTop: 8 }}>
+            <strong>Justification ordering:</strong> preference <em>seeded</em> (instructor-curated)
+            responses over organic peer responses in each tab's list, same as on the
+            Screen 1 feedback.
+          </div>
+        </DevNote>
+
         <DistributionBar
-          label="What would you conclude?"
-          options={['Protein X is correlated with lifespan', 'Protein X is not correlated with lifespan', "We can't conclude either way"]}
+          label="Is there support for the hypothesis?"
+          options={['Yes, the data supports the hypothesis', 'No, the data does not support the hypothesis', 'The data is inconclusive']}
           counts={[
-            PEER_DIST.s2conclude[0] + (s2Conclude === 'Protein X is correlated with lifespan' ? 1 : 0),
-            PEER_DIST.s2conclude[1] + (s2Conclude === 'Protein X is not correlated with lifespan' ? 1 : 0),
-            PEER_DIST.s2conclude[2] + (s2Conclude === "We can't conclude either way" ? 1 : 0),
+            PEER_DIST.s2conclude[0] + (s2Conclude === 'Yes, the data supports the hypothesis' ? 1 : 0),
+            PEER_DIST.s2conclude[1] + (s2Conclude === 'No, the data does not support the hypothesis' ? 1 : 0),
+            PEER_DIST.s2conclude[2] + (s2Conclude === 'The data is inconclusive' ? 1 : 0),
           ]}
           total={PEER_DIST.s2conclude.reduce((a, b) => a + b, 0) + 1}
           userResponses={s2Conclude}
-          correctResponses="We can't conclude either way"
+          correctResponses="The data is inconclusive"
         />
-        <UserResponseBox label="Your justification" value={s2Justification} />
-        <PeerTextToggle responses={PEER_TEXT_S2} />
+
+        <ResponseTabs
+          options={['Yes, the data supports the hypothesis', 'No, the data does not support the hypothesis', 'The data is inconclusive']}
+          tabLabels={['Supported', 'Not supported', 'Inconclusive']}
+          peerTextByOption={PEER_TEXT_S2_BY_CONCLUDE}
+          userOption={s2Conclude}
+          userJustification={s2Justification}
+        />
       </div>
     </div>
   );
 }
 
 // ─── Screen 3 ─────────────────────────────────────────────────────────────────
-function Screen3({ s3What, setS3What, s3WhatSubmitted, setS3WhatSubmitted }) {
-  const anySelected = Object.values(s3What).some(Boolean);
+function Screen3({ s3What, setS3What }) {
   return (
     <div>
       <ProgressBar current={5} />
@@ -866,42 +1226,40 @@ function Screen3({ s3What, setS3What, s3WhatSubmitted, setS3WhatSubmitted }) {
             key={opt}
             label={opt}
             checked={s3What[opt]}
-            onChange={() => !s3WhatSubmitted && setS3What(prev => ({ ...prev, [opt]: !prev[opt] }))}
+            onChange={() => setS3What(prev => ({ ...prev, [opt]: !prev[opt] }))}
           />
         ))}
-        {!s3WhatSubmitted && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
-            <StyledButton variant="primary" disabled={!anySelected} onClick={() => setS3WhatSubmitted(true)}>
-              Submit
-            </StyledButton>
-          </div>
-        )}
-        {s3WhatSubmitted && (
-          <div style={{ marginTop: 16 }}>
-            {Object.keys(s3What).map(opt => {
-              const isHelpful = HELPFUL_OPTIONS.has(opt);
-              return (
-                <div key={opt} style={{
-                  padding: '10px 14px', marginBottom: 8, borderRadius: 8,
-                  border: `1.5px solid ${isHelpful ? C.successBorder : C.warningBorder}`,
-                  background: isHelpful ? C.successBg : C.warningBg,
-                }}>
-                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: C.dark, marginBottom: 3 }}>{opt}</div>
-                  <div style={{ fontSize: '0.8rem', fontWeight: 500, color: C.dark }}>{OPTION_FEEDBACK[opt]}</div>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
     </div>
   );
 }
 
 // ─── Feedback 3 ───────────────────────────────────────────────────────────────
-function Feedback3({ s3What }) {
-  const userSelected = Object.keys(s3What).filter(k => s3What[k]);
-  const correctOptions = Array.from(HELPFUL_OPTIONS);
+// Three decoupled sections to avoid color-coding conflicts:
+//   1. Correct-answer indicator — green/orange signals option's helpfulness ONLY
+//   2. Peer DistributionBar     — purple signals user's selection ONLY
+//   3. Explanations             — neutral (gray) cards, no color coding
+// "What to do next?" lives behind a reveal button so students think first.
+function Feedback3({ s3What, showNextSteps, setShowNextSteps }) {
+
+  const allOptions = Object.keys(s3What);
+  const userSelected = allOptions.filter(k => s3What[k]);
+  const helpfulOptions = allOptions.filter(opt => HELPFUL_OPTIONS.has(opt));
+  const notHelpfulOptions = allOptions.filter(opt => !HELPFUL_OPTIONS.has(opt));
+  const orderedExplanations = [...helpfulOptions, ...notHelpfulOptions];
+
+  // Shared small styles
+  const sectionHeading = {
+    fontSize: '0.95rem', fontWeight: 700, color: C.black,
+    marginBottom: 10,
+  };
+  const sectionDivider = { borderTop: `1px solid ${C.border}`, margin: '20px 0' };
+  const optionRow = {
+    display: 'flex', alignItems: 'baseline', gap: 10,
+    fontSize: '0.95rem', fontWeight: 500, color: C.dark,
+    padding: '4px 0',
+  };
+
   return (
     <div>
       <ProgressBar current={6} />
@@ -914,30 +1272,102 @@ function Feedback3({ s3What }) {
         <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 16 }}>
           Response Summary
         </div>
-        <DistributionBar
-          label="Which of the following changes would increase your confidence in identifying a relationship?"
-          options={Object.keys(s3What)}
-          counts={Object.keys(s3What).map((opt, i) => PEER_DIST.s3what[i] + (s3What[opt] ? 1 : 0))}
-          total={PEER_DIST.s3what.reduce((a, b) => a + b, 0) + Object.values(s3What).filter(Boolean).length}
-          userResponses={userSelected}
-          correctResponses={correctOptions}
-        />
+
+        {/* ── Section 1: Which options are helpful ──────────────────────── */}
+        <div>
+          <div style={sectionHeading}>
+            Which changes would help?
+          </div>
+
+          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: C.dark, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 4, marginTop: 4 }}>
+            Helpful
+          </div>
+          {helpfulOptions.map(opt => (
+            <div key={opt} style={optionRow}>
+              <span style={{ fontSize: '1rem', fontWeight: 700, color: C.successBorder, lineHeight: 1, width: 16, flexShrink: 0 }}>✓</span>
+              <span>{opt}</span>
+            </div>
+          ))}
+
+          <div style={{ fontSize: '0.8rem', fontWeight: 700, color: C.dark, letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 4, marginTop: 12 }}>
+            Not helpful
+          </div>
+          {notHelpfulOptions.map(opt => (
+            <div key={opt} style={optionRow}>
+              <span style={{ fontSize: '1rem', fontWeight: 700, color: C.warningBorder, lineHeight: 1, width: 16, flexShrink: 0 }}>✗</span>
+              <span>{opt}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={sectionDivider} />
+
+        {/* ── Section 2: Peer distribution ──────────────────────────────── */}
+        <div>
+          <div style={sectionHeading}>
+            How others answered
+          </div>
+          <DistributionBar
+            label=""
+            options={allOptions}
+            counts={allOptions.map((opt, i) => PEER_DIST.s3what[i] + (s3What[opt] ? 1 : 0))}
+            total={PEER_DIST.s3what.reduce((a, b) => a + b, 0) + userSelected.length}
+            userResponses={userSelected}
+          />
+        </div>
+
+        <div style={sectionDivider} />
+
+        {/* ── Section 3: Explanations (neutral, no color coding) ───────── */}
+        <div>
+          <div style={sectionHeading}>
+            Why each option would or wouldn't help
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {orderedExplanations.map(opt => {
+              const isHelpful = HELPFUL_OPTIONS.has(opt);
+              return (
+                <div key={opt} style={{
+                  padding: '10px 14px', borderRadius: 8,
+                  border: `1.5px solid ${isHelpful ? C.successBorder : C.warningBorder}`,
+                  background: isHelpful ? C.successBg : C.warningBg,
+                }}>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: C.black, marginBottom: 4 }}>
+                    {opt}
+                  </div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 500, color: C.dark, lineHeight: 1.5 }}>
+                    {OPTION_FEEDBACK[opt]}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
-      <div style={{
-        padding: '14px 16px', marginBottom: 20, borderRadius: 8,
-        border: `1.5px solid ${C.blue}`,
-        background: C.blueBg,
-      }}>
-        <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 10 }}>
-          What to do next?
+      {/* ── What to do next? (reveal) ────────────────────────────────────── */}
+      {!showNextSteps ? (
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
+          <StyledButton variant="primary" onClick={() => setShowNextSteps(true)}>
+            What to do next?
+          </StyledButton>
         </div>
-        <div style={{ fontSize: '1rem', fontWeight: 500, color: C.dark }}>
-          These data are very ambiguous! There is no obvious trend. But… the slope we measured isn't zero. How confidently can we rule out the possibility that a true relationship is hiding within these data? If there was a steeper slope then those confidence intervals wouldn't be such a problem. But failing that, what we really need is to shrink those confidence intervals around our line until we know with higher certainty what the effect really is.
-          <br /><br />
-          What might it take to accomplish that?
+      ) : (
+        <div style={{
+          padding: '14px 16px', marginBottom: 20, borderRadius: 8,
+          border: `1.5px solid ${C.blue}`,
+          background: C.blueBg,
+        }}>
+          <div style={{ fontSize: '1.2rem', fontWeight: 700, color: C.black, marginBottom: 10 }}>
+            What to do next?
+          </div>
+          <div style={{ fontSize: '1rem', fontWeight: 500, color: C.dark }}>
+            These data are very ambiguous! There is no obvious trend. But… the slope we measured isn't zero. How confidently can we rule out the possibility that a true relationship is hiding within these data? If there was a steeper slope then those confidence intervals wouldn't be such a problem. But failing that, what we really need is to shrink those confidence intervals around our line until we know with higher certainty what the effect really is.
+            <br /><br />
+            What might it take to accomplish that?
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -995,16 +1425,16 @@ function FinalResults({ s1Predict, s1Confidence, s1Justification, s2Conclude, s2
           Screen 2 — After Statistical Analysis
         </div>
         <DistributionBar
-          label="What would you conclude?"
-          options={['Protein X is correlated with lifespan', 'Protein X is not correlated with lifespan', "We can't conclude either way"]}
+          label="Is there support for the hypothesis?"
+          options={['Yes, the data supports the hypothesis', 'No, the data does not support the hypothesis', 'The data is inconclusive']}
           counts={[
-            PEER_DIST.s2conclude[0] + (s2Conclude === 'Protein X is correlated with lifespan' ? 1 : 0),
-            PEER_DIST.s2conclude[1] + (s2Conclude === 'Protein X is not correlated with lifespan' ? 1 : 0),
-            PEER_DIST.s2conclude[2] + (s2Conclude === "We can't conclude either way" ? 1 : 0),
+            PEER_DIST.s2conclude[0] + (s2Conclude === 'Yes, the data supports the hypothesis' ? 1 : 0),
+            PEER_DIST.s2conclude[1] + (s2Conclude === 'No, the data does not support the hypothesis' ? 1 : 0),
+            PEER_DIST.s2conclude[2] + (s2Conclude === 'The data is inconclusive' ? 1 : 0),
           ]}
           total={PEER_DIST.s2conclude.reduce((a, b) => a + b, 0) + 1}
           userResponses={s2Conclude}
-          correctResponses="We can't conclude either way"
+          correctResponses="The data is inconclusive"
         />
         <UserResponseBox label="Your justification" value={s2Justification} />
       </div>
@@ -1065,12 +1495,15 @@ function Activity() {
     'Perform more statistical tests': false,
     'Repeat this experiment in a different population': false,
   });
-  const [s3WhatSubmitted, setS3WhatSubmitted] = useState(false);
+
+  // Feedback 3 reveal state — gates advancement from screen 6
+  const [showNextSteps, setShowNextSteps] = useState(false);
 
   function canProceed() {
     if (screen === 1) return s1Predict !== '' && s1Justification.trim().length > 0 && s1Confidence !== '';
     if (screen === 3) return s2Conclude !== '' && s2Justification.trim().length > 0;
-    if (screen === 5) return s3WhatSubmitted;
+    if (screen === 5) return Object.values(s3What).some(Boolean);
+    if (screen === 6) return showNextSteps;
     return true;
   }
 
@@ -1084,7 +1517,8 @@ function Activity() {
       if (!s2Conclude) return 'Select a conclusion to continue';
       if (!s2Justification.trim()) return 'Enter your justification to continue';
     }
-    if (screen === 5) return 'Submit your selections to continue';
+    if (screen === 5) return 'Select at least one option to continue';
+    if (screen === 6) return 'Reveal "What to do next?" to continue';
     return '';
   }
 
@@ -1140,11 +1574,10 @@ function Activity() {
         {screen === 5 && (
           <Screen3
             s3What={s3What} setS3What={setS3What}
-            s3WhatSubmitted={s3WhatSubmitted} setS3WhatSubmitted={setS3WhatSubmitted}
           />
         )}
         {screen === 6 && (
-          <Feedback3 s3What={s3What} />
+          <Feedback3 s3What={s3What} showNextSteps={showNextSteps} setShowNextSteps={setShowNextSteps} />
         )}
         {screen === 7 && <CongratsScreen />}
 
