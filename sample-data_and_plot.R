@@ -24,7 +24,8 @@ for(i in 1:num_runs)
     best_r <- r
   }
 }
-# write.csv(best_d, "new_pilot.csv", row.names = FALSE)
+names(best_d) <- c("Biomarker", "Lifespan")
+write.csv(best_d, "pilot_n-20.csv", row.names = FALSE)
 
 ## define plotting styles ----
 library(tidyverse)
@@ -100,8 +101,6 @@ c4r_geom_textsize <- function(fontsize = 14, plot_dpi = 300) {
 }
 
 ## make plots ----
-names(best_d) <- c("Biomarker", "Lifespan")
-
 make_lifespan_biomarker_panel <- function(df, dpi = view_dpi, 
                                           include_regression = FALSE)
 {
@@ -147,6 +146,8 @@ ggsave(
 
 df_100 <- orig[1:100,]
 names(df_100) <- c("Biomarker", "Lifespan")
+write.csv(df_100, "pilot_n-100.csv", row.names = FALSE)
+
 make_lifespan_biomarker_panel(df_100)
 
 p <- make_lifespan_biomarker_panel(df_100, dpi = plot_dpi)
