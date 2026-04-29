@@ -20,3 +20,6 @@
 
 ## Lesson 7
 [Sample Size Resource Evaluation](https://c4r-io.github.io/bu_sam-activities/sample-size-resource-activity)
+
+## Lesson 8
+[Evaluate Papers](https://c4r-io.github.io/bu_sam-activities/bu_sam-08_evaluatepapers)
