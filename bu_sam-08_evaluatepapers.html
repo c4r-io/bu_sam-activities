@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Protein X — Sample Size Rigor Activity</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Georgia', serif;
+    background: #F3F3F3;
+    color: #333132;
+    min-height: 100vh;
+    padding-bottom: 80px;
+  }
+
+  /* ── TYPOGRAPHY ── */
+  .t-title    { font-size: 1.2rem;  font-weight: 700; color: #202020; }
+  .t-heading  { font-size: 1.1rem;  font-weight: 700; color: #202020; }
+  .t-sub      { font-size: 1.0rem;  font-weight: 600; color: #202020; }
+  .t-body     { font-size: 1.0rem;  font-weight: 500; color: #333132; line-height: 1.6; }
+  .t-caption  { font-size: 0.85rem; font-weight: 500; color: #333132; line-height: 1.5; }
+  .t-small    { font-size: 0.8rem;  font-weight: 500; color: #333132; line-height: 1.5; }
+
+  /* ── LAYOUT ── */
+  .page { max-width: 760px; margin: 0 auto; padding: 24px 20px 100px; }
+
+  /* ── PROGRESS BAR ── */
+  .progress-wrap { margin-bottom: 24px; }
+  .progress-meta { display: flex; justify-content: flex-end; margin-bottom: 4px; }
+  .progress-track { height: 8px; border-radius: 4px; background: #E0E0E0; overflow: hidden; }
+  .progress-fill  { height: 100%; border-radius: 4px; background: #6F00FF; transition: width 0.3s ease; }
+
+  /* ── INSTRUCTION CARD ── */
+  .instruction-card {
+    background: #F0F4FF;
+    border-left: 4px solid #0082FF;
+    border-radius: 0 6px 6px 0;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+  .instruction-card .card-title { font-size: 1.1rem; font-weight: 700; color: #202020; margin-bottom: 8px; }
+
+  /* ── PAPER CARD ── */
+  .paper-card {
+    background: #fff;
+    border: 1px solid #E0E0E0;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 20px;
+  }
+  .paper-card-header {
+    background: #F3F3F3;
+    padding: 10px 16px;
+    border-bottom: 1px solid #E0E0E0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .paper-tag {
+    font-size: 0.75rem; font-weight: 600;
+    background: #E0E0E0; color: #333132;
+    padding: 2px 8px; border-radius: 4px;
+  }
+  .paper-card-body { padding: 16px; }
+  .conclusion-block {
+    background: #FFFBF0;
+    border-left: 4px solid #FF8F00;
+    border-radius: 0 8px 8px 0;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+  }
+  .conclusion-label {
+    font-size: 0.8rem; font-weight: 700; color: #FF8F00;
+    text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;
+  }
+
+  /* ── WHITE PANEL ── */
+  .panel {
+    background: #fff;
+    border: 1px solid #E0E0E0;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+
+  /* ── CHECKLIST ── */
+  .checklist-row {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 8px 10px; border-radius: 6px;
+    border: 1px solid transparent;
+    transition: all 0.2s;
+    margin-bottom: 6px;
+  }
+  .checklist-row label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; flex: 1; }
+  .checklist-row input[type=checkbox] { margin-top: 3px; accent-color: #6F00FF; width: 16px; height: 16px; flex-shrink: 0; }
+  .checklist-row .row-badge {
+    flex-shrink: 0; font-size: 0.7rem; font-weight: 700;
+    padding: 2px 7px; border-radius: 4px; white-space: nowrap; margin-top: 2px;
+  }
+  .checklist-row .row-hint { font-size: 0.8rem; color: #D32F2F; margin-top: 3px; }
+
+  /* ── RADIO OPTIONS ── */
+  .radio-option {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 14px; border-radius: 8px;
+    border: 2px solid #E0E0E0; background: #fff;
+    cursor: pointer; transition: all 0.15s ease;
+    margin-bottom: 8px;
+  }
+  .radio-option input { margin-top: 3px; accent-color: #6F00FF; flex-shrink: 0; }
+  .radio-option .opt-label { font-size: 1rem; font-weight: 600; color: #333132; }
+  .radio-option .opt-desc  { font-size: 0.8rem; font-weight: 500; color: #757575; }
+  .radio-option.selected   { border-color: #6F00FF; background: rgba(111,0,255,0.08); }
+  .radio-option.correct    { border-color: #2E7D32; background: #F0FFF0; }
+  .radio-option.incorrect  { border-color: #D32F2F; background: #FFF0F0; }
+
+  /* Yes/No options */
+  .yn-wrap { display: flex; gap: 10px; }
+  .yn-option {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 24px; border-radius: 8px;
+    border: 2px solid #E0E0E0; background: #fff;
+    cursor: pointer; font-size: 1rem; font-weight: 600;
+    color: #333132; transition: all 0.15s ease;
+  }
+  .yn-option input { accent-color: #6F00FF; flex-shrink: 0; }
+  .yn-option.selected  { border-color: #6F00FF; background: rgba(111,0,255,0.08); }
+
+  /* ── FEEDBACK BOX ── */
+  .feedback-box {
+    margin-top: 10px;
+    background: rgba(111,0,255,0.08);
+    border: 1px solid #6F00FF;
+    border-radius: 6px; padding: 10px 14px;
+  }
+
+  /* ── CRITERIA LIST (intro) ── */
+  .criteria-list { display: flex; flex-direction: column; }
+  .criteria-row {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 10px 0;
+    border-bottom: 1px solid #E0E0E0;
+  }
+  .criteria-row:last-child { border-bottom: none; }
+  .criteria-num { font-size: 0.85rem; font-weight: 700; color: #6F00FF; min-width: 20px; padding-top: 2px; flex-shrink: 0; }
+
+  /* ── BUTTONS ── */
+  .btn {
+    padding: 10px 20px; font-size: 1rem; font-weight: 600;
+    border-radius: 8px; border: 2px solid; cursor: pointer;
+    transition: all 0.2s ease; font-family: inherit;
+  }
+  .btn-primary { background: #202020; color: #fff; border-color: #202020; }
+  .btn-primary:hover:not(:disabled) { background: #6F00FF; border-color: #6F00FF; }
+  .btn-primary:disabled { background: #999; border-color: #999; cursor: not-allowed; }
+  .btn-secondary { background: #F3F3F3; color: #333132; border-color: #F3F3F3; }
+  .btn-secondary:hover { background: #333132; color: #fff; }
+
+  /* ── NAV BAR ── */
+  .nav-bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 32px;
+    background: #fff;
+    border-top: 1px solid #E0E0E0;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.08);
+    z-index: 1000;
+  }
+  .nav-tip-wrap { position: relative; }
+  .nav-tip {
+    display: none; position: absolute; bottom: 110%; right: 0;
+    background: #202020; color: #fff; font-size: 0.8rem;
+    padding: 8px 12px; border-radius: 6px; white-space: nowrap;
+    pointer-events: none;
+  }
+  .nav-tip-wrap:hover .nav-tip { display: block; }
+
+  /* ── SUMMARY ACCORDION ── */
+  .accordion-item {
+    background: #fff; border: 1px solid #E0E0E0;
+    border-radius: 8px; overflow: hidden;
+    margin-bottom: 8px; transition: border-color 0.2s;
+  }
+  .accordion-item.open { border-color: #6F00FF; }
+  .accordion-btn {
+    width: 100%; display: flex; align-items: center;
+    justify-content: space-between; gap: 12px;
+    padding: 14px 16px; background: #F3F3F3;
+    border: none; cursor: pointer; text-align: left;
+    transition: background 0.2s; font-family: inherit;
+  }
+  .accordion-item.open .accordion-btn { background: rgba(111,0,255,0.08); border-bottom: 1px solid #E0E0E0; }
+  .accordion-chevron {
+    font-size: 0.8rem; font-weight: 700; color: #757575;
+    transition: transform 0.2s ease; display: inline-block;
+  }
+  .accordion-item.open .accordion-chevron { transform: rotate(180deg); color: #6F00FF; }
+  .accordion-content { padding: 14px 16px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* ── TALLY BARS ── */
+  .tally-row { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
+  .tally-label { font-size: 0.8rem; font-weight: 500; color: #333132; min-width: 150px; }
+  .tally-label.correct { color: #2E7D32; font-weight: 700; }
+  .tally-track { flex: 1; height: 10px; border-radius: 5px; background: #E0E0E0; overflow: hidden; }
+  .tally-fill  { height: 100%; border-radius: 5px; background: #6F00FF; transition: width 0.4s ease; }
+  .tally-fill.correct { background: #2E7D32; }
+  .tally-pct  { font-size: 0.8rem; font-weight: 500; color: #757575; min-width: 36px; text-align: right; }
+
+  /* ── BADGES ── */
+  .badge {
+    font-size: 0.8rem; font-weight: 600;
+    padding: 3px 10px; border-radius: 4px; display: inline-block;
+  }
+  .badge-green  { background: #F0FFF0; border: 1px solid #2E7D32; color: #2E7D32; }
+  .badge-red    { background: #FFF0F0; border: 1px solid #D32F2F; color: #D32F2F; }
+  .badge-purple { background: rgba(111,0,255,0.08); border: 1px solid #6F00FF; color: #6F00FF; }
+  .badge-gray   { background: #F3F3F3; border: 1px solid #E0E0E0; color: #757575; }
+
+  /* ── OTHERS DROPDOWN ── */
+  .others-btn {
+    font-size: 0.85rem; font-weight: 600; padding: 7px 14px; border-radius: 6px;
+    cursor: pointer; background: #fff; color: #333132;
+    border: 1.5px solid #E0E0E0; font-family: inherit; transition: all 0.15s;
+  }
+  .others-btn.open { background: #202020; color: #fff; border-color: #202020; }
+  .others-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .others-item { background: #F3F3F3; border: 1px solid #E0E0E0; border-radius: 6px; padding: 10px 12px; }
+  .others-name { font-size: 0.8rem; color: #757575; margin-bottom: 4px; }
+
+  /* ── CONGRATS ── */
+  .congrats-wrap { text-align: center; padding: 40px 20px; }
+  .congrats-icon {
+    width: 72px; height: 72px; border-radius: 50%;
+    background: rgba(111,0,255,0.08); border: 2px solid #6F00FF;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2rem; margin: 0 auto 24px;
+  }
+
+  /* ── SECTION LABEL ── */
+  .section-label {
+    font-size: 0.8rem; font-weight: 700; color: #757575;
+    text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;
+  }
+
+  /* ── ANSWER ROW ── */
+  .answer-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+
+  /* ── HIDDEN ── */
+  .hidden { display: none !important; }
+
+  /* ── RESPONSE BLOCK ── */
+  .response-block {
+    background: #F3F3F3; border: 1px solid #E0E0E0;
+    border-radius: 6px; padding: 10px 12px;
+  }
+
+  textarea {
+    width: 100%; font-size: 1rem; font-weight: 500;
+    color: #333132; line-height: 1.6; padding: 10px 12px;
+    border-radius: 6px; border: 1.5px solid #6F00FF;
+    background: #fff; resize: vertical; outline: none;
+    font-family: inherit;
+  }
+
+  .submit-row { display: flex; justify-content: flex-end; margin-top: 12px; }
+  .gap-16 { display: flex; flex-direction: column; gap: 16px; }
+  .gap-20 { display: flex; flex-direction: column; gap: 20px; }
+  .mb-20 { margin-bottom: 20px; }
+  .mb-12 { margin-bottom: 12px; }
+  .mb-8  { margin-bottom: 8px; }
+  .mb-6  { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<!-- SCREEN CONTAINER -->
+<div id="app"></div>
+
+<!-- NAV BAR -->
+<div class="nav-bar">
+  <button class="btn btn-secondary" id="btn-prev" onclick="navigate(-1)">PREVIOUS</button>
+  <div class="nav-tip-wrap">
+    <span class="nav-tip" id="nav-tip-text">Complete the step to continue</span>
+    <button class="btn btn-primary" id="btn-next" onclick="navigate(1)">NEXT</button>
+  </div>
+</div>
+
+<script>
+// ============================================================================
+// DATA
+// ============================================================================
+
+const CHECKLIST_CRITERIA = [
+  { id: 'c2', label: 'Justification of reported N (e.g., prior literature or pilot data)' },
+  { id: 'c1', label: 'Power calculation (e.g., effect size, alpha, statistical power)' },
+  { id: 'c3', label: 'Sample size determined before data collection' },
+  { id: 'c4', label: 'Inclusion/exclusion criteria and/or attrition' },
+];
+
+const Q1_OPTIONS = [
+  { value: 'insufficient',      label: 'Insufficient',      desc: 'Several reporting elements are missing or insufficient' },
+  { value: 'needs_improvement', label: 'Needs Improvement', desc: 'Most elements present but some are missing' },
+  { value: 'thorough',          label: 'Thorough',          desc: 'All key elements reported transparently' },
+];
+
+const Q3_OPTIONS = [
+  { value: 'yes', label: 'Yes' },
+  { value: 'no',  label: 'No' },
+];
+
+const PLACEHOLDER_RESPONSES = {
+  A: {
+    q1: ['thorough','thorough','needs_improvement','thorough','thorough'],
+    q3: ['yes','yes','yes','no','yes'],
+    q2: [
+      'The study is transparent about being underpowered which is commendable, but I would be cautious about using it as a model given the large gap between required and actual N.',
+      'Good reporting but the null result should be interpreted carefully given the underpowering — it may be a false negative.',
+      'The acknowledgment of limitations is a strength. The conclusions are appropriately hedged.',
+      'Power analysis is present and honest. I would want to see this replicated before drawing conclusions about Protein X.',
+    ],
+  },
+  B: {
+    q1: ['insufficient','insufficient','needs_improvement','insufficient','insufficient'],
+    q3: ['no','no','no','no','yes'],
+    q2: [
+      'No justification for N = 12 is provided. The conclusions are far too strong given the lack of reporting.',
+      'The exclusion of one animal without explanation is a red flag. This paper would not be a good model.',
+      'Concerned that the recommendation for clinical translation is based on an unreported and unjustified sample size.',
+      'Missing power analysis and effect size justification entirely. The conclusions overreach what this study can support.',
+    ],
+  },
+  C: {
+    q1: ['needs_improvement','needs_improvement','insufficient','needs_improvement','needs_improvement'],
+    q3: ['no','no','no','no','no'],
+    q2: [
+      'N = 8 with 4 participants lost is not sufficient to support the claim of a validated biomarker. The conclusions are a major concern.',
+      'Citing a prior study for enrollment is a start but without effect size or power analysis this cannot be used as a sample size model.',
+      'The attrition rate is very high relative to the sample size. Combined with the overstated conclusions this is not a suitable model.',
+      'Longitudinal studies require careful power analysis, especially with small N. This paper does not provide sufficient justification.',
+    ],
+  },
+  D: {
+    q1: ['thorough','thorough','thorough','thorough','needs_improvement'],
+    q3: ['yes','yes','yes','yes','yes'],
+    q2: [
+      'This is the strongest model — pilot data, pre-registration, and planned attrition. Very few concerns.',
+      'The cross-species design adds complexity but the reporting handles it well. Conclusions are appropriately cautious.',
+      'Pre-specified exclusion criteria and a pre-registration are best practices. This is the clearest model for our study.',
+      'No major concerns. The note about needing functional validation shows appropriate epistemic humility.',
+    ],
+  },
+};
+
+const PAPERS = [
+  {
+    id: 'A', tag: 'Preprint · Rodent study',
+    excerpt: 'Power analysis was conducted a priori using G*Power (v3.1). Based on a previous study of related proteins in aged mice (Raven et al., 2019), we estimated an effect size and determined that n = 52 per group would be required to achieve 80% power at α = 0.05. Due to animal availability constraints, the study was conducted with n = 25 per group; this sample is acknowledged to be underpowered for the estimated effect size. All animals completed the study.',
+    conclusion: 'The authors state that they observed no significant difference in Protein X expression between young and aged mice, but they recommend replication with adequately powered cohorts before findings may be considered conclusive.',
+    correctChecklist: { c1: true, c2: true, c3: true, c4: true },
+    q1Correct: 'thorough', q3Correct: 'yes',
+    q1Feedback: 'All four reporting elements are present and limitations are disclosed honestly, a mark of thorough reporting.',
+  },
+  {
+    id: 'B', tag: 'Rodent study',
+    excerpt: 'Twelve rats per group were used in this study (n = 12 control, n = 12 treatment). Animals were housed under standard laboratory conditions with a 12-hour light/dark cycle and ad libitum access to food and water. Tissue was collected at 18 months of age and processed for western blot analysis of Protein X expression. Blots were quantified using ImageJ and normalized to β-actin loading controls. Group differences were assessed using an unpaired t-test. One animal in the treatment group was removed from analysis.',
+    conclusion: 'The authors conclude that Protein X is a reliable biomarker for longevity in this animal model and recommend it as a viable target for therapeutic intervention in clinical research.',
+    correctChecklist: { c1: false, c2: false, c3: false, c4: true },
+    q1Correct: 'insufficient', q3Correct: 'no',
+    q1Feedback: 'Several key reporting elements are missing. There is no power analysis or effect size rationale, and the exclusion is unexplained.',
+  },
+  {
+    id: 'C', tag: 'Human longitudinal study',
+    excerpt: 'Eight participants were enrolled based on a previous longitudinal study of aging biomarkers in similar populations (Chickadee et al., 2017). Participants were aged 65–80 at enrollment and reported no major health issues. Blood samples were collected at annual clinic visits and processed within 4 hours of collection. Serum Protein X levels were measured annually over 10 years and analyzed using linear mixed-effects models to account for repeated measures. Three participants withdrew during follow-up and one participant was excluded from analysis; no criteria for withdrawal or exclusion were pre-specified.',
+    conclusion: 'The authors conclude that declining Protein X levels reliably predict mortality risk and propose Protein X as a validated human longevity biomarker.',
+    correctChecklist: { c1: false, c2: true, c3: true, c4: true },
+    q1Correct: 'needs_improvement', q3Correct: 'no',
+    q1Feedback: 'Prior literature is cited and attrition is reported, but without a power analysis or pre-specified exclusion criteria, the reporting needs improvement.',
+  },
+  {
+    id: 'D', tag: 'Cross-species sequencing study (mouse & primate)',
+    excerpt: 'Power analysis was conducted prior to data collection using an estimated effect size derived from two independent pilot experiments. With α = 0.05 and 80% power, we determined n = 20 per species group was required; n = 22 were enrolled per group to account for anticipated attrition. Final analysis included n = 20 per group after excluding 2 samples that failed sequencing quality thresholds defined in our pre-registration. Protein X expression patterns were quantified by RNA sequencing and normalized using DESeq2.',
+    conclusion: 'The authors conclude that Protein X expression patterns are conserved across both species and represent a candidate biomarker pathway, while noting that functional validation in larger cohorts is needed.',
+    correctChecklist: { c1: true, c2: true, c3: true, c4: true },
+    q1Correct: 'thorough', q3Correct: 'yes',
+    q1Feedback: 'Every key reporting element is present.',
+  },
+];
+
+// ============================================================================
+// STATE
+// ============================================================================
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+const shuffledPapers = shuffle(PAPERS);
+
+let screen = 1;
+const TOTAL_SCREENS = 7;
+
+// checklists[paperId][criterionId] = bool
+const checklists = {};
+// paperState[paperId] = { q1, q3, q2, q1Submitted }
+const paperState = {};
+
+PAPERS.forEach(p => {
+  checklists[p.id] = {};
+  CHECKLIST_CRITERIA.forEach(c => { checklists[p.id][c.id] = false; });
+  paperState[p.id] = { q1: '', q3: '', q2: '', q1Submitted: false };
+});
+
+// summary accordion state
+let openSummaryId = shuffledPapers[0].id;
+// others-open per paper
+const othersOpen = {};
+PAPERS.forEach(p => { othersOpen[p.id] = false; });
+
+function getPaperLabel(id) {
+  const idx = shuffledPapers.findIndex(p => p.id === id);
+  return idx >= 0 ? `Paper ${idx + 1}` : '';
+}
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function getOptionLabel(options, value) {
+  const opt = options.find(o => o.value === value);
+  return opt ? opt.label : '—';
+}
+
+function countResponses(arr, value) {
+  return arr.filter(v => v === value).length;
+}
+
+function esc(str) {
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+// ============================================================================
+// RENDER HELPERS
+// ============================================================================
+
+function renderProgressBar(current, total) {
+  const pct = Math.round((current / total) * 100);
+  return `
+    <div class="progress-wrap">
+      <div class="progress-meta"><span class="t-small">Screen ${current} of ${total}</span></div>
+      <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+    </div>`;
+}
+
+function renderInstructionCard(title, bodyHtml) {
+  return `
+    <div class="instruction-card">
+      ${title ? `<div class="card-title">${esc(title)}</div>` : ''}
+      ${bodyHtml}
+    </div>`;
+}
+
+function renderPaperExcerpt(paper, label) {
+  return `
+    <div class="paper-card">
+      <div class="paper-card-header">
+        <span class="t-sub">${esc(label)}</span>
+        <span class="paper-tag">${esc(paper.tag)}</span>
+      </div>
+      <div class="paper-card-body">
+        <p class="t-body">${esc(paper.excerpt)}</p>
+      </div>
+    </div>`;
+}
+
+function renderConclusionBlock(conclusion) {
+  return `
+    <div class="conclusion-block">
+      <div class="conclusion-label">Authors' conclusion</div>
+      <p class="t-body">${esc(conclusion)}</p>
+    </div>`;
+}
+
+function renderChecklist(paperId, submitted) {
+  const cc = paper => PAPERS.find(p => p.id === paper);
+  const paperObj = PAPERS.find(p => p.id === paperId);
+  let rows = '';
+  CHECKLIST_CRITERIA.forEach(c => {
+    const checked = checklists[paperId][c.id];
+    const correct = paperObj.correctChecklist[c.id];
+    const isMatch = !submitted || checked === correct;
+    let rowStyle = '';
+    let badgeHtml = '';
+    let hintHtml = '';
+    if (submitted) {
+      rowStyle = isMatch
+        ? 'border-color:#E0E0E0; background:#fff;'
+        : 'border-color:#D32F2F; background:#FFF0F0;';
+      const badgeCls = isMatch ? 'badge-green' : 'badge-red';
+      const badgeText = isMatch ? '✓ Correct' : (checked ? 'Marked present' : 'Marked absent');
+      badgeHtml = `<span class="badge ${badgeCls} row-badge">${badgeText}</span>`;
+      if (!isMatch) {
+        hintHtml = `<div class="row-hint">${correct ? 'This criterion is present — look again at the excerpt.' : 'This criterion is not present in the excerpt.'}</div>`;
+      }
+    }
+    const disabledAttr = submitted ? 'disabled' : '';
+    const checkedAttr  = checked ? 'checked' : '';
+    rows += `
+      <div class="checklist-row" style="${rowStyle}">
+        <label>
+          <input type="checkbox" ${checkedAttr} ${disabledAttr}
+            onchange="toggleChecklist('${paperId}','${c.id}',this.checked)" />
+          <div>
+            <span class="t-body">${esc(c.label)}</span>
+            ${hintHtml}
+          </div>
+        </label>
+        ${badgeHtml}
+      </div>`;
+  });
+  return `<div class="panel mb-20"><p class="t-sub mb-12">Checklist</p>${rows}</div>`;
+}
+
+function renderQ1(paperId) {
+  const ps = paperState[paperId];
+  const paper = PAPERS.find(p => p.id === paperId);
+  let opts = '';
+  Q1_OPTIONS.forEach(opt => {
+    let cls = 'radio-option';
+    if (ps.q1Submitted) {
+      if (opt.value === paper.q1Correct) cls += ' correct';
+      else if (opt.value === ps.q1)      cls += ' incorrect';
+    } else {
+      if (opt.value === ps.q1) cls += ' selected';
+    }
+    const disabledAttr = ps.q1Submitted ? 'disabled' : '';
+    const checkedAttr  = opt.value === ps.q1 ? 'checked' : '';
+    opts += `
+      <label class="${cls}">
+        <input type="radio" name="q1_${paperId}" value="${opt.value}" ${checkedAttr} ${disabledAttr}
+          onchange="selectQ1('${paperId}','${opt.value}')" />
+        <div>
+          <div class="opt-label">${esc(opt.label)}</div>
+          <div class="opt-desc">${esc(opt.desc)}</div>
+        </div>
+      </label>`;
+  });
+
+  const feedbackHtml = ps.q1Submitted && paper.q1Feedback
+    ? `<div class="feedback-box"><p class="t-caption">${esc(paper.q1Feedback)}</p></div>` : '';
+
+  const submitBtn = !ps.q1Submitted
+    ? `<div class="submit-row">
+        <button class="btn btn-primary" id="q1-submit-btn"
+          onclick="submitQ1('${paperId}')"
+          ${(!ps.q1 || !Object.values(checklists[paperId]).some(Boolean)) ? 'disabled' : ''}>
+          Submit
+        </button>
+       </div>` : '';
+
+  return `
+    <div class="panel mb-20">
+      <p class="t-sub mb-12">1. How would you rate the reporting quality of this paper?</p>
+      ${opts}
+      ${feedbackHtml}
+      ${submitBtn}
+    </div>`;
+}
+
+function renderQ3Q2(paperId) {
+  const ps = paperState[paperId];
+  const paper = PAPERS.find(p => p.id === paperId);
+
+  let ynOpts = '';
+  Q3_OPTIONS.forEach(opt => {
+    const cls = 'yn-option' + (opt.value === ps.q3 ? ' selected' : '');
+    const checkedAttr = opt.value === ps.q3 ? 'checked' : '';
+    ynOpts += `
+      <label class="${cls}">
+        <input type="radio" name="q3_${paperId}" value="${opt.value}" ${checkedAttr}
+          onchange="selectQ3('${paperId}','${opt.value}')" />
+        ${esc(opt.label)}
+      </label>`;
+  });
+
+  return `
+    <div class="panel mb-20 gap-20">
+      <div>
+        <p class="t-sub mb-12">2. Are the conclusions appropriately scoped given what has been reported about the sample size?</p>
+        <div class="yn-wrap">${ynOpts}</div>
+      </div>
+      <div>
+        <p class="t-sub mb-12">3. Based on the sample size reporting and conclusions, what comments or concerns do you have about the rigor of this study?</p>
+        <textarea rows="4" placeholder="Type your response here…"
+          oninput="updateQ2('${paperId}',this.value)">${esc(ps.q2)}</textarea>
+      </div>
+    </div>`;
+}
+
+function renderTallyBars(options, allResponses, correctValue) {
+  let html = '';
+  options.forEach(opt => {
+    const count = countResponses(allResponses, opt.value);
+    const pct   = allResponses.length ? Math.round((count / allResponses.length) * 100) : 0;
+    const isCor = opt.value === correctValue;
+    html += `
+      <div class="tally-row">
+        <span class="tally-label ${isCor ? 'correct' : ''}">${esc(opt.label)}${isCor ? ' ✓' : ''}</span>
+        <div class="tally-track"><div class="tally-fill ${isCor ? 'correct' : ''}" style="width:${pct}%"></div></div>
+        <span class="tally-pct">${pct}%</span>
+      </div>`;
+  });
+  return html;
+}
+
+function renderAnswerRow(userLabel, correctLabel, isMatch) {
+  const userBadge = `<span class="badge ${isMatch ? 'badge-green' : 'badge-red'}">Your answer: ${esc(userLabel || '—')}</span>`;
+  const corrBadge = !isMatch
+    ? `<span class="badge badge-green">Correct: ${esc(correctLabel)}</span>` : '';
+  const tick = isMatch ? `<span class="t-small" style="color:#2E7D32">✓ Correct</span>` : '';
+  return `<div class="answer-row">${userBadge}${corrBadge}${tick}</div>`;
+}
+
+function renderSummaryCardContent(paper) {
+  const ps = paperState[paper.id];
+  const placeholders = PLACEHOLDER_RESPONSES[paper.id];
+
+  const allQ1 = [...placeholders.q1, ps.q1].filter(Boolean);
+  const allQ3 = [...placeholders.q3, ps.q3].filter(Boolean);
+
+  const q1UserLabel    = getOptionLabel(Q1_OPTIONS, ps.q1);
+  const q1CorrectLabel = getOptionLabel(Q1_OPTIONS, paper.q1Correct);
+  const q1Match        = ps.q1 === paper.q1Correct;
+  const q3Match        = ps.q3 === paper.q3Correct;
+  const q3UserLabel    = ps.q3 === 'yes' ? 'Yes' : ps.q3 === 'no' ? 'No' : '—';
+  const q3CorrectLabel = paper.q3Correct === 'yes' ? 'Yes' : 'No';
+
+  const showOthers = othersOpen[paper.id];
+  const othersItems = placeholders.q2.map((r, i) => `
+    <div class="others-item">
+      <div class="others-name">Classmate ${i + 1}</div>
+      <p class="t-body" style="font-size:0.9rem">${esc(r)}</p>
+    </div>`).join('');
+
+  return `
+    <div>
+      <p class="section-label">Reporting quality</p>
+      ${renderTallyBars(Q1_OPTIONS, allQ1, paper.q1Correct)}
+      ${renderAnswerRow(q1UserLabel, q1CorrectLabel, q1Match)}
+    </div>
+    <div>
+      <p class="section-label">Conclusions appropriately scoped?</p>
+      ${renderTallyBars(Q3_OPTIONS, allQ3, paper.q3Correct)}
+      ${renderAnswerRow(q3UserLabel, q3CorrectLabel, q3Match)}
+    </div>
+    <div>
+      <p class="section-label">Your comments</p>
+      <div class="response-block">
+        <p class="t-body" style="font-size:0.9rem; ${ps.q2 ? '' : 'font-style:italic; color:#999'}">
+          ${ps.q2 ? esc(ps.q2) : 'No response recorded.'}
+        </p>
+      </div>
+    </div>
+    <div>
+      <button class="others-btn ${showOthers ? 'open' : ''}"
+        onclick="toggleOthers('${paper.id}')">
+        ${showOthers ? '▲ Hide others\' responses' : '▼ See what others said'}
+      </button>
+      ${showOthers ? `<div class="others-list">${othersItems}</div>` : ''}
+    </div>`;
+}
+
+// ============================================================================
+// SCREEN RENDERERS
+// ============================================================================
+
+function renderScreen1() {
+  const criteriaRows = CHECKLIST_CRITERIA.map((c, i) => `
+    <div class="criteria-row">
+      <span class="criteria-num">${i + 1}.</span>
+      <p class="t-body">${esc(c.label)}</p>
+    </div>`).join('');
+
+  return `
+    <div class="page">
+      ${renderProgressBar(1, TOTAL_SCREENS)}
+      ${renderInstructionCard('Evaluating Sample Size in Published Papers', `
+        <p class="t-body" style="margin-top:8px">
+          Your lab is planning a study on Protein X expression as a potential biomarker for longevity.
+          Before designing your study, you want to find papers that can serve as models for your sample size decisions.
+        </p>
+        <p class="t-body" style="margin-top:10px">
+          Below you will review excerpts from four papers measuring Protein X in aging models.
+          For each paper, you will complete a short checklist of reporting criteria and answer a few questions.
+        </p>`)}
+      <div class="panel">
+        <p class="t-sub mb-12">We have determined the following criteria are important for our study design. Evaluate each paper against these criteria:</p>
+        <div class="criteria-list">${criteriaRows}</div>
+      </div>
+    </div>`;
+}
+
+function renderPaperScreen(idx) {
+  const paper = shuffledPapers[idx];
+  const label = `Paper ${idx + 1}`;
+  const ps = paperState[paper.id];
+
+  return `
+    <div class="page">
+      ${renderProgressBar(idx + 2, TOTAL_SCREENS)}
+      ${renderInstructionCard('', `<p class="t-body">Read the excerpt below and mark which reporting criteria are present.</p>`)}
+      ${renderPaperExcerpt(paper, label)}
+      ${renderChecklist(paper.id, ps.q1Submitted)}
+      ${renderQ1(paper.id)}
+      ${ps.q1Submitted ? renderConclusionBlock(paper.conclusion) + renderQ3Q2(paper.id) : ''}
+    </div>`;
+}
+
+function renderSummaryScreen() {
+  const items = shuffledPapers.map((paper, idx) => {
+    const label = `Paper ${idx + 1}`;
+    const isOpen = openSummaryId === paper.id;
+    const contentHtml = isOpen ? `<div class="accordion-content">${renderSummaryCardContent(paper)}</div>` : '';
+    return `
+      <div class="accordion-item ${isOpen ? 'open' : ''}" id="acc-${paper.id}">
+        <button class="accordion-btn" onclick="toggleAccordion('${paper.id}')">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="t-sub" style="color:${isOpen ? '#6F00FF' : '#202020'}">${esc(label)}</span>
+            <span class="paper-tag">${esc(paper.tag)}</span>
+          </div>
+          <span class="accordion-chevron">▼</span>
+        </button>
+        ${contentHtml}
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="page">
+      ${renderProgressBar(6, TOTAL_SCREENS)}
+      ${renderInstructionCard('', `<p class="t-body">See summary of responses below.</p>`)}
+      ${items}
+    </div>`;
+}
+
+function renderCongratsScreen() {
+  return `
+    <div class="page">
+      <div class="congrats-wrap">
+        <div class="congrats-icon">✓</div>
+        <p class="t-title" style="font-size:1.4rem;margin-bottom:16px">Activity Complete</p>
+        <p class="t-body" style="max-width:520px;margin:0 auto 16px">
+          You practiced identifying rigorous sample size reporting across four real-world study designs.
+          Recognizing what is present — and what is missing — in a methods section is the first step
+          toward designing your own well-powered study.
+        </p>
+        <p class="t-body" style="max-width:520px;margin:0 auto">
+          In the next activities, you will use these criteria to inform your own study design and
+          practice reporting your sample size decisions with transparency.
+        </p>
+      </div>
+    </div>`;
+}
+
+// ============================================================================
+// NAVIGATION
+// ============================================================================
+
+function canGoNext() {
+  if (screen === 1) return true;
+  if (screen >= 2 && screen <= 5) {
+    const idx = screen - 2;
+    const paper = shuffledPapers[idx];
+    const ps = paperState[paper.id];
+    const atLeastOneChecked = Object.values(checklists[paper.id]).some(Boolean);
+    return atLeastOneChecked && ps.q1Submitted && ps.q3 !== '' && ps.q2.trim().length > 0;
+  }
+  if (screen === 6) return true;
+  return false;
+}
+
+function getNextDisabledMessage() {
+  if (screen >= 2 && screen <= 5) {
+    const paper = shuffledPapers[screen - 2];
+    const ps = paperState[paper.id];
+    const atLeastOneChecked = Object.values(checklists[paper.id]).some(Boolean);
+    if (!atLeastOneChecked) return 'Check at least one criterion to continue';
+    if (!ps.q1Submitted) return 'Submit your reporting quality answer to continue';
+    if (ps.q3 === '') return 'Answer the conclusions question to continue';
+    return 'Write a response to continue';
+  }
+  return 'Complete the step to continue';
+}
+
+function navigate(dir) {
+  if (dir === 1 && !canGoNext()) return;
+  screen = Math.max(1, Math.min(TOTAL_SCREENS, screen + dir));
+  render();
+}
+
+function updateNavBar() {
+  const btnPrev = document.getElementById('btn-prev');
+  const btnNext = document.getElementById('btn-next');
+  const tipEl   = document.getElementById('nav-tip-text');
+
+  // Previous
+  if (screen === 1 || screen === TOTAL_SCREENS) {
+    btnPrev.style.display = 'none';
+  } else {
+    btnPrev.style.display = '';
+    btnPrev.disabled = false;
+  }
+
+  // Next label
+  const isLast = screen === TOTAL_SCREENS;
+  btnNext.textContent = screen === 5 ? 'NEXT' : screen === 6 ? 'COMPLETE ACTIVITY' : 'NEXT';
+  if (isLast) {
+    btnNext.style.display = 'none';
+  } else {
+    btnNext.style.display = '';
+    const ok = canGoNext();
+    btnNext.disabled = !ok;
+    tipEl.textContent = ok ? '' : getNextDisabledMessage();
+  }
+}
+
+// ============================================================================
+// EVENT HANDLERS
+// ============================================================================
+
+function toggleChecklist(paperId, criterionId, value) {
+  checklists[paperId][criterionId] = value;
+  // Re-enable/disable Q1 submit button if present
+  const submitBtn = document.getElementById('q1-submit-btn');
+  if (submitBtn) {
+    const ps = paperState[paperId];
+    const atLeastOne = Object.values(checklists[paperId]).some(Boolean);
+    submitBtn.disabled = !ps.q1 || !atLeastOne;
+  }
+  updateNavBar();
+}
+
+function selectQ1(paperId, value) {
+  paperState[paperId].q1 = value;
+  const submitBtn = document.getElementById('q1-submit-btn');
+  if (submitBtn) {
+    const atLeastOne = Object.values(checklists[paperId]).some(Boolean);
+    submitBtn.disabled = !value || !atLeastOne;
+  }
+  // Update visual selection without full re-render
+  document.querySelectorAll(`input[name="q1_${paperId}"]`).forEach(inp => {
+    const opt = inp.closest('.radio-option');
+    opt.classList.toggle('selected', inp.value === value);
+  });
+  updateNavBar();
+}
+
+function submitQ1(paperId) {
+  paperState[paperId].q1Submitted = true;
+  render();
+}
+
+function selectQ3(paperId, value) {
+  paperState[paperId].q3 = value;
+  document.querySelectorAll(`input[name="q3_${paperId}"]`).forEach(inp => {
+    inp.closest('.yn-option').classList.toggle('selected', inp.value === value);
+  });
+  updateNavBar();
+}
+
+function updateQ2(paperId, value) {
+  paperState[paperId].q2 = value;
+  updateNavBar();
+}
+
+function toggleAccordion(id) {
+  openSummaryId = openSummaryId === id ? null : id;
+  render();
+}
+
+function toggleOthers(paperId) {
+  othersOpen[paperId] = !othersOpen[paperId];
+  render();
+}
+
+// ============================================================================
+// RENDER
+// ============================================================================
+
+function render() {
+  const app = document.getElementById('app');
+  if (screen === 1) app.innerHTML = renderScreen1();
+  else if (screen >= 2 && screen <= 5) app.innerHTML = renderPaperScreen(screen - 2);
+  else if (screen === 6) app.innerHTML = renderSummaryScreen();
+  else if (screen === 7) app.innerHTML = renderCongratsScreen();
+  updateNavBar();
+  window.scrollTo(0, 0);
+}
+
+// Initial render
+render();
+</script>
+</body>
+</html>
