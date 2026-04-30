@@ -47,28 +47,28 @@
         title: 'Online Calculator',
         study: {
           species: 'Mice',
-          design: 'Repeated-measures, 5 weekly timepoints',
+          design: 'Repeated-measures, 5 weekly timepoints', 2 test groups
           outcome: 'Locomotor activity',
-          analysis: 'Mixed-effects model (drug-treated vs. vehicle control)',
+          analysis: 'Mixed-effects model',
         },
         resource: {
-          name: 'Online sample size calculator (found via Google)',
+          name: 'Online sample size calculator',
           details: [
-            'Asks for effect size, alpha, and power',
+            'Asks for effect size, standard deviation, alpha, and power',
             'Outputs a single n per group',
-            'No information about assumed test or data structure',
+            'Option to compute power from n',
           ],
         },
         questions: [
           { id: 'b', text: 'Do you know what website or organization is behind this calculator?' },
-          { id: 'f', text: 'Have you been able to find any publications or documentation that validate it?' },
+          { id: 'f', text: 'Was this tool recommended by someone you know?' },
           { id: 'a', text: 'What kind of statistical test do you think this calculator might be designed to assume?' },
           { id: 'e', text: 'Have you had a chance to check whether the alpha and power defaults seem right for your field?' },
           { id: 'c', text: 'How did you arrive at your expected effect size — does it seem realistic for this kind of study?' },
-          { id: 'd', text: 'Does the calculator seem to account for the possibility that some animals might drop out over time?' },
+          { id: 'd', text: 'Did you adjust the estimate it gave you to account for the possibility of attrition?' },
         ],
         bestAnswers: ['a'],
-        rationale: "Online calculators are a common starting point, but they vary widely in the analyses they assume — and often don't say. A calculator built for a simple two-sample t-test will seriously underestimate the sample size needed for a repeated-measures mixed-effects model. That mismatch in assumed data structure is the most likely hazard with this type of resource, and it's the one that can't be worked around. Other concerns — effect size realism, attrition, publication credibility — are worth exploring, but none of them reveal a fundamental incompatibility the way the assumed test does.",
+        rationale: "Online calculators are a common starting point, but they vary widely in the analyses they apply to — and often don't say. A calculator built for a simple two-sample t-test will seriously underestimate the sample size needed for a repeated-measures mixed-effects model. In fact, it would be hard to find a calculator that can give a good estimate for this type of analysis. That mismatch in assumed analysis is the main hazard with this type of resource. Other concerns — effect size, attrition, credibility — are worth exploring, but aren't key to the decision to use this tool.",
       },
       {
         id: 2,
