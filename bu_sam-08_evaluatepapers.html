@@ -4,11 +4,14 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Protein X — Sample Size Rigor Activity</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" />
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    font-family: 'Georgia', serif;
+    font-family: 'Poppins', sans-serif;
     background: #F3F3F3;
     color: #333132;
     min-height: 100vh;
@@ -99,7 +102,6 @@
     flex-shrink: 0; font-size: 0.7rem; font-weight: 700;
     padding: 2px 7px; border-radius: 4px; white-space: nowrap; margin-top: 2px;
   }
-  .checklist-row .row-hint { font-size: 0.8rem; color: #D32F2F; margin-top: 3px; }
 
   /* ── RADIO OPTIONS ── */
   .radio-option {
@@ -168,7 +170,7 @@
     box-shadow: 0 -2px 10px rgba(0,0,0,0.08);
     z-index: 1000;
   }
-  .nav-tip-wrap { position: relative; }
+  .nav-tip-wrap { position: relative; margin-left: auto; }
   .nav-tip {
     display: none; position: absolute; bottom: 110%; right: 0;
     background: #202020; color: #fff; font-size: 0.8rem;
@@ -218,16 +220,118 @@
   .badge-purple { background: rgba(111,0,255,0.08); border: 1px solid #6F00FF; color: #6F00FF; }
   .badge-gray   { background: #F3F3F3; border: 1px solid #E0E0E0; color: #757575; }
 
-  /* ── OTHERS DROPDOWN ── */
-  .others-btn {
-    font-size: 0.85rem; font-weight: 600; padding: 7px 14px; border-radius: 6px;
-    cursor: pointer; background: #fff; color: #333132;
-    border: 1.5px solid #E0E0E0; font-family: inherit; transition: all 0.15s;
+  /* ── SUMMARY: EXCERPT BLOCK ── */
+  .summary-excerpt {
+    background: #F3F3F3;
+    border-left: 3px solid #C4C4C4;
+    border-radius: 0 6px 6px 0;
+    padding: 12px 14px;
+    margin-top: 4px;
   }
-  .others-btn.open { background: #202020; color: #fff; border-color: #202020; }
-  .others-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
-  .others-item { background: #F3F3F3; border: 1px solid #E0E0E0; border-radius: 6px; padding: 10px 12px; }
-  .others-name { font-size: 0.8rem; color: #757575; margin-bottom: 4px; }
+
+  /* ── SUMMARY: REPORTING ELEMENTS GRID ── */
+  .reporting-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 6px;
+  }
+  .reporting-col-header {
+    font-size: 0.8rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    margin-bottom: 8px;
+  }
+  .reporting-col-header.present { color: #2E7D32; }
+  .reporting-col-header.absent  { color: #757575; }
+  .reporting-list {
+    list-style: none; padding: 0; margin: 0;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .reporting-li {
+    font-size: 0.9rem; line-height: 1.4;
+    padding-left: 20px; position: relative;
+    color: #333132;
+  }
+  .reporting-li.present::before {
+    content: '✓'; color: #2E7D32; font-weight: 700;
+    position: absolute; left: 0; top: 0;
+  }
+  .reporting-li.absent::before {
+    content: '−'; color: #999; font-weight: 700;
+    position: absolute; left: 0; top: 0;
+  }
+  .reporting-li-empty {
+    font-size: 0.85rem; color: #999; font-style: italic;
+  }
+
+  /* ── SUMMARY: "YOUR PICK" BADGE IN BAR CHART ── */
+  .your-pick-badge {
+    font-size: 0.7rem; font-weight: 600;
+    background: rgba(111,0,255,0.08);
+    border: 1px solid #6F00FF;
+    color: #6F00FF;
+    padding: 2px 7px; border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  /* ── SUMMARY: COMMENTS TABS (folder style) ── */
+  .comments-tabs-row {
+    display: flex;
+    border-bottom: 1px solid #9E9E9E;
+    margin-top: 4px;
+  }
+  .comments-tab {
+    background: #E0E0E0;
+    color: #202020;
+    border: 1px solid #9E9E9E;
+    padding: 8px 18px;
+    font-size: 0.9rem; font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.15s;
+    margin-bottom: -1px;
+    border-radius: 0;
+  }
+  .comments-tab:first-child { border-top-left-radius: 6px; }
+  .comments-tab:last-child  { border-top-right-radius: 6px; }
+  .comments-tab:not(:first-child) { margin-left: -1px; }
+  .comments-tab:hover:not(.active) { background: #D5D5D5; }
+  .comments-tab.active {
+    background: #202020; color: #fff;
+    border-color: #9E9E9E;
+    /* Active tab connects to the panel below — bottom edge sits ON TOP of
+       the row's bottom border, hiding the line under the active tab. */
+    border-bottom-color: #202020;
+  }
+  .comments-panel {
+    border: 1px solid #E0E0E0;
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    padding: 14px;
+    background: #fff;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .comment-item {
+    background: #F3F3F3;
+    border: 1px solid #E0E0E0;
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .comment-item.is-user {
+    background: rgba(111,0,255,0.08);
+    border-color: #6F00FF;
+  }
+  .comment-name {
+    font-size: 0.75rem; font-weight: 600;
+    color: #757575;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    margin-bottom: 4px;
+  }
+  .comment-item.is-user .comment-name { color: #6F00FF; }
+  .comments-empty {
+    font-size: 0.9rem; color: #999; font-style: italic;
+    text-align: center; padding: 16px 0;
+  }
 
   /* ── CONGRATS ── */
   .congrats-wrap { text-align: center; padding: 40px 20px; }
@@ -244,17 +348,8 @@
     text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;
   }
 
-  /* ── ANSWER ROW ── */
-  .answer-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-
   /* ── HIDDEN ── */
   .hidden { display: none !important; }
-
-  /* ── RESPONSE BLOCK ── */
-  .response-block {
-    background: #F3F3F3; border: 1px solid #E0E0E0;
-    border-radius: 6px; padding: 10px 12px;
-  }
 
   textarea {
     width: 100%; font-size: 1rem; font-weight: 500;
@@ -293,8 +388,8 @@
 // ============================================================================
 
 const CHECKLIST_CRITERIA = [
-  { id: 'c2', label: 'Justification of reported N (e.g., prior literature or pilot data)' },
   { id: 'c1', label: 'Power calculation (e.g., effect size, alpha, statistical power)' },
+  { id: 'c2', label: 'Justification of reported N (e.g., prior literature or pilot data)' },
   { id: 'c3', label: 'Sample size determined before data collection' },
   { id: 'c4', label: 'Inclusion/exclusion criteria and/or attrition' },
 ];
@@ -419,9 +514,6 @@ PAPERS.forEach(p => {
 
 // summary accordion state
 let openSummaryId = shuffledPapers[0].id;
-// others-open per paper
-const othersOpen = {};
-PAPERS.forEach(p => { othersOpen[p.id] = false; });
 
 function getPaperLabel(id) {
   const idx = shuffledPapers.findIndex(p => p.id === id);
@@ -489,62 +581,70 @@ function renderConclusionBlock(conclusion) {
     </div>`;
 }
 
-function renderChecklist(paperId, submitted) {
-  const cc = paper => PAPERS.find(p => p.id === paper);
+// Badge content for a checklist row, given the user's check state and
+// whether the criterion is actually present. Used in both the initial
+// render and the post-submit DOM update so they stay in sync.
+function getChecklistBadge(checked, correct) {
+  if (checked === correct) {
+    return { text: '✓ Correct', cls: 'badge-green' };
+  }
+  // Wrong: tell the user the truth directly. Red + ✗ already signal
+  // "you got this wrong"; the text states what's actually the case.
+  if (checked) {
+    return { text: '✗ Not in the excerpt', cls: 'badge-red' };
+  }
+  return { text: '✗ Present in the excerpt', cls: 'badge-red' };
+}
+
+function renderChecklist(paperId) {
   const paperObj = PAPERS.find(p => p.id === paperId);
+  const submitted = paperState[paperId].q1Submitted;
   let rows = '';
   CHECKLIST_CRITERIA.forEach(c => {
     const checked = checklists[paperId][c.id];
     const correct = paperObj.correctChecklist[c.id];
-    const isMatch = !submitted || checked === correct;
-    let rowStyle = '';
-    let badgeHtml = '';
-    let hintHtml = '';
-    if (submitted) {
-      rowStyle = isMatch
-        ? 'border-color:#E0E0E0; background:#fff;'
-        : 'border-color:#D32F2F; background:#FFF0F0;';
-      const badgeCls = isMatch ? 'badge-green' : 'badge-red';
-      const badgeText = isMatch ? '✓ Correct' : (checked ? 'Marked present' : 'Marked absent');
-      badgeHtml = `<span class="badge ${badgeCls} row-badge">${badgeText}</span>`;
-      if (!isMatch) {
-        hintHtml = `<div class="row-hint">${correct ? 'This criterion is present — look again at the excerpt.' : 'This criterion is not present in the excerpt.'}</div>`;
-      }
-    }
+    const isWrong = submitted && checked !== correct;
+
+    // Only wrong rows get chrome post-submit. Correct rows stay visually
+    // identical to their pre-submit state — just gain a small green badge.
+    const rowStyle = isWrong ? 'border-color:#D32F2F; background:#FFF0F0;' : '';
+
+    const badge = getChecklistBadge(checked, correct);
+    const badgeHiddenCls = submitted ? '' : 'hidden';
+
     const disabledAttr = submitted ? 'disabled' : '';
     const checkedAttr  = checked ? 'checked' : '';
     rows += `
-      <div class="checklist-row" style="${rowStyle}">
+      <div class="checklist-row" id="row-${paperId}-${c.id}" style="${rowStyle}">
         <label>
           <input type="checkbox" ${checkedAttr} ${disabledAttr}
             onchange="toggleChecklist('${paperId}','${c.id}',this.checked)" />
-          <div>
-            <span class="t-body">${esc(c.label)}</span>
-            ${hintHtml}
-          </div>
+          <span class="t-body">${esc(c.label)}</span>
         </label>
-        ${badgeHtml}
+        <span class="badge ${badge.cls} row-badge ${badgeHiddenCls}" id="badge-${paperId}-${c.id}">${esc(badge.text)}</span>
       </div>`;
   });
-  return `<div class="panel mb-20"><p class="t-sub mb-12">Checklist</p>${rows}</div>`;
+  return `<div class="panel mb-20"><p class="t-sub mb-12">Reporting Elements Checklist</p>${rows}</div>`;
 }
 
 function renderQ1(paperId) {
   const ps = paperState[paperId];
   const paper = PAPERS.find(p => p.id === paperId);
+  const submitted = ps.q1Submitted;
+
   let opts = '';
   Q1_OPTIONS.forEach(opt => {
     let cls = 'radio-option';
-    if (ps.q1Submitted) {
+    if (submitted) {
       if (opt.value === paper.q1Correct) cls += ' correct';
       else if (opt.value === ps.q1)      cls += ' incorrect';
     } else {
       if (opt.value === ps.q1) cls += ' selected';
     }
-    const disabledAttr = ps.q1Submitted ? 'disabled' : '';
+    const disabledAttr = submitted ? 'disabled' : '';
     const checkedAttr  = opt.value === ps.q1 ? 'checked' : '';
     opts += `
-      <label class="${cls}">
+      <label class="${cls}" id="q1opt-${paperId}-${opt.value}">
         <input type="radio" name="q1_${paperId}" value="${opt.value}" ${checkedAttr} ${disabledAttr}
           onchange="selectQ1('${paperId}','${opt.value}')" />
         <div>
@@ -554,24 +654,25 @@ function renderQ1(paperId) {
       </label>`;
   });
 
-  const feedbackHtml = ps.q1Submitted && paper.q1Feedback
-    ? `<div class="feedback-box"><p class="t-caption">${esc(paper.q1Feedback)}</p></div>` : '';
-
-  const submitBtn = !ps.q1Submitted
-    ? `<div class="submit-row">
-        <button class="btn btn-primary" id="q1-submit-btn"
-          onclick="submitQ1('${paperId}')"
-          ${(!ps.q1 || !Object.values(checklists[paperId]).some(Boolean)) ? 'disabled' : ''}>
-          Submit
-        </button>
-       </div>` : '';
+  // Feedback box and submit row are both always in the DOM. Whichever is
+  // not relevant for the current state gets the .hidden class.
+  const feedbackHiddenCls = submitted ? '' : 'hidden';
+  const submitHiddenCls   = submitted ? 'hidden' : '';
+  const submitDisabled    = (!ps.q1 || !Object.values(checklists[paperId]).some(Boolean)) ? 'disabled' : '';
 
   return `
     <div class="panel mb-20">
       <p class="t-sub mb-12">1. How would you rate the reporting quality of this paper?</p>
       ${opts}
-      ${feedbackHtml}
-      ${submitBtn}
+      <div class="feedback-box ${feedbackHiddenCls}" id="q1-feedback-${paperId}">
+        <p class="t-caption">${esc(paper.q1Feedback || '')}</p>
+      </div>
+      <div class="submit-row ${submitHiddenCls}" id="q1-submit-row-${paperId}">
+        <button class="btn btn-primary" id="q1-submit-btn"
+          onclick="submitQ1('${paperId}')" ${submitDisabled}>
+          Submit
+        </button>
+      </div>
     </div>`;
 }
 
@@ -605,76 +706,134 @@ function renderQ3Q2(paperId) {
     </div>`;
 }
 
-function renderTallyBars(options, allResponses, correctValue) {
-  let html = '';
-  options.forEach(opt => {
-    const count = countResponses(allResponses, opt.value);
-    const pct   = allResponses.length ? Math.round((count / allResponses.length) * 100) : 0;
-    const isCor = opt.value === correctValue;
-    html += `
-      <div class="tally-row">
-        <span class="tally-label ${isCor ? 'correct' : ''}">${esc(opt.label)}${isCor ? ' ✓' : ''}</span>
-        <div class="tally-track"><div class="tally-fill ${isCor ? 'correct' : ''}" style="width:${pct}%"></div></div>
-        <span class="tally-pct">${pct}%</span>
-      </div>`;
-  });
-  return html;
+// Build a comments-by-vote tab for one Yes/No option. The user's own
+// response is pinned at the top of whichever tab matches their pick.
+function buildCommentsForVote(paper, voteValue) {
+  const ps = paperState[paper.id];
+  const placeholders = PLACEHOLDER_RESPONSES[paper.id];
+
+  // Pair each placeholder vote with its q2 comment by index. If q2 is
+  // shorter than q3 (some classmates voted but didn't comment), those
+  // voters still count in the bar chart but contribute no comment.
+  const peers = placeholders.q3
+    .map((vote, i) => ({
+      vote,
+      comment: placeholders.q2[i] || null,
+      name: `Classmate ${i + 1}`,
+      isUser: false,
+    }))
+    .filter(r => r.vote === voteValue && r.comment);
+
+  const userMatchesTab = ps.q3 === voteValue && ps.q2 && ps.q2.trim();
+  const userResponse = userMatchesTab
+    ? [{ vote: ps.q3, comment: ps.q2, name: 'You', isUser: true }]
+    : [];
+
+  return [...userResponse, ...peers];
 }
 
-function renderAnswerRow(userLabel, correctLabel, isMatch) {
-  const userBadge = `<span class="badge ${isMatch ? 'badge-green' : 'badge-red'}">Your answer: ${esc(userLabel || '—')}</span>`;
-  const corrBadge = !isMatch
-    ? `<span class="badge badge-green">Correct: ${esc(correctLabel)}</span>` : '';
-  const tick = isMatch ? `<span class="t-small" style="color:#2E7D32">✓ Correct</span>` : '';
-  return `<div class="answer-row">${userBadge}${corrBadge}${tick}</div>`;
+function renderCommentsList(comments) {
+  if (comments.length === 0) {
+    return '<p class="comments-empty">No comments for this option.</p>';
+  }
+  return comments.map(r => `
+    <div class="comment-item ${r.isUser ? 'is-user' : ''}">
+      <div class="comment-name">${esc(r.name)}${r.isUser ? ' (you)' : ''}</div>
+      <p class="t-body" style="font-size:0.9rem">${esc(r.comment)}</p>
+    </div>`).join('');
 }
 
 function renderSummaryCardContent(paper) {
   const ps = paperState[paper.id];
   const placeholders = PLACEHOLDER_RESPONSES[paper.id];
 
-  const allQ1 = [...placeholders.q1, ps.q1].filter(Boolean);
-  const allQ3 = [...placeholders.q3, ps.q3].filter(Boolean);
+  // ── Reporting elements: split criteria into present vs absent for THIS paper.
+  const presentLabels = [];
+  const absentLabels  = [];
+  CHECKLIST_CRITERIA.forEach(c => {
+    if (paper.correctChecklist[c.id]) presentLabels.push(c.label);
+    else                              absentLabels.push(c.label);
+  });
+  const renderColumn = (labels, kind) => {
+    if (!labels.length) return '<li class="reporting-li-empty">None</li>';
+    return labels.map(l => `<li class="reporting-li ${kind}">${esc(l)}</li>`).join('');
+  };
 
-  const q1UserLabel    = getOptionLabel(Q1_OPTIONS, ps.q1);
-  const q1CorrectLabel = getOptionLabel(Q1_OPTIONS, paper.q1Correct);
-  const q1Match        = ps.q1 === paper.q1Correct;
-  const q3Match        = ps.q3 === paper.q3Correct;
-  const q3UserLabel    = ps.q3 === 'yes' ? 'Yes' : ps.q3 === 'no' ? 'No' : '—';
-  const q3CorrectLabel = paper.q3Correct === 'yes' ? 'Yes' : 'No';
+  // ── Yes/No bar chart with "Your pick" badge on the user's row.
+  const allVotes = [...placeholders.q3, ps.q3].filter(Boolean);
+  const userVote = ps.q3;
+  const barRows = Q3_OPTIONS.map(opt => {
+    const count = countResponses(allVotes, opt.value);
+    const pct   = allVotes.length ? Math.round((count / allVotes.length) * 100) : 0;
+    const isCor  = opt.value === paper.q3Correct;
+    const isUser = opt.value === userVote;
+    return `
+      <div class="tally-row">
+        <span class="tally-label ${isCor ? 'correct' : ''}">${esc(opt.label)}${isCor ? ' ✓' : ''}</span>
+        ${isUser ? '<span class="your-pick-badge">Your pick</span>' : ''}
+        <div class="tally-track"><div class="tally-fill ${isCor ? 'correct' : ''}" style="width:${pct}%"></div></div>
+        <span class="tally-pct">${pct}%</span>
+      </div>`;
+  }).join('');
 
-  const showOthers = othersOpen[paper.id];
-  const othersItems = placeholders.q2.map((r, i) => `
-    <div class="others-item">
-      <div class="others-name">Classmate ${i + 1}</div>
-      <p class="t-body" style="font-size:0.9rem">${esc(r)}</p>
-    </div>`).join('');
+  // ── Comments tabs. Default tab = user's own pick.
+  const yesComments = buildCommentsForVote(paper, 'yes');
+  const noComments  = buildCommentsForVote(paper, 'no');
+  const defaultTab  = userVote === 'no' ? 'no' : 'yes';
+  const yesActive   = defaultTab === 'yes';
+
+  const tabsHtml = `
+    <div class="comments-tabs-row">
+      <button class="comments-tab ${yesActive ? 'active' : ''}"
+              data-paper="${paper.id}" data-tab="yes"
+              onclick="switchCommentsTab('${paper.id}','yes')">
+        Yes (${yesComments.length})
+      </button>
+      <button class="comments-tab ${!yesActive ? 'active' : ''}"
+              data-paper="${paper.id}" data-tab="no"
+              onclick="switchCommentsTab('${paper.id}','no')">
+        No (${noComments.length})
+      </button>
+    </div>
+    <div class="comments-panel ${yesActive ? '' : 'hidden'}" id="comments-${paper.id}-yes">
+      ${renderCommentsList(yesComments)}
+    </div>
+    <div class="comments-panel ${!yesActive ? '' : 'hidden'}" id="comments-${paper.id}-no">
+      ${renderCommentsList(noComments)}
+    </div>`;
 
   return `
     <div>
-      <p class="section-label">Reporting quality</p>
-      ${renderTallyBars(Q1_OPTIONS, allQ1, paper.q1Correct)}
-      ${renderAnswerRow(q1UserLabel, q1CorrectLabel, q1Match)}
-    </div>
-    <div>
-      <p class="section-label">Conclusions appropriately scoped?</p>
-      ${renderTallyBars(Q3_OPTIONS, allQ3, paper.q3Correct)}
-      ${renderAnswerRow(q3UserLabel, q3CorrectLabel, q3Match)}
-    </div>
-    <div>
-      <p class="section-label">Your comments</p>
-      <div class="response-block">
-        <p class="t-body" style="font-size:0.9rem; ${ps.q2 ? '' : 'font-style:italic; color:#999'}">
-          ${ps.q2 ? esc(ps.q2) : 'No response recorded.'}
-        </p>
+      <p class="section-label">Excerpt</p>
+      <div class="summary-excerpt">
+        <p class="t-body" style="font-size:0.9rem">${esc(paper.excerpt)}</p>
       </div>
     </div>
     <div>
-      <button class="others-btn ${showOthers ? 'open' : ''}"
-        onclick="toggleOthers('${paper.id}')">
-        ${showOthers ? '▲ Hide others\' responses' : '▼ See what others said'}
-      </button>
-      ${showOthers ? `<div class="others-list">${othersItems}</div>` : ''}
+      <div class="reporting-grid">
+        <div>
+          <p class="reporting-col-header present">Present in excerpt</p>
+          <ul class="reporting-list">${renderColumn(presentLabels, 'present')}</ul>
+        </div>
+        <div>
+          <p class="reporting-col-header absent">Absent from excerpt</p>
+          <ul class="reporting-list">${renderColumn(absentLabels, 'absent')}</ul>
+        </div>
+      </div>
+    </div>
+    <div>
+      <p class="section-label">Authors' conclusion</p>
+      <div class="conclusion-block">
+        <p class="t-body" style="font-size:0.9rem">${esc(paper.conclusion)}</p>
+      </div>
+    </div>
+    <div style="margin-top:-8px">
+      <p class="section-label">Were conclusions appropriately scoped?</p>
+      ${barRows}
+    </div>
+    <div>
+      <p class="section-label">Comments by response</p>
+      ${tabsHtml}
     </div>`;
 }
 
@@ -695,14 +854,11 @@ function renderScreen1() {
       ${renderInstructionCard('Evaluating Sample Size in Published Papers', `
         <p class="t-body" style="margin-top:8px">
           Your lab is planning a study on Protein X expression as a potential biomarker for longevity.
-          Before designing your study, you want to find papers that can serve as models for your sample size decisions.
-        </p>
-        <p class="t-body" style="margin-top:10px">
           Below you will review excerpts from four papers measuring Protein X in aging models.
-          For each paper, you will complete a short checklist of reporting criteria and answer a few questions.
+          For each paper, complete a checklist of reporting criteria and answer a few questions.
         </p>`)}
       <div class="panel">
-        <p class="t-sub mb-12">We have determined the following criteria are important for our study design. Evaluate each paper against these criteria:</p>
+        <p class="t-sub mb-12">Reporting Elements Checklist</p>
         <div class="criteria-list">${criteriaRows}</div>
       </div>
     </div>`;
@@ -712,15 +868,19 @@ function renderPaperScreen(idx) {
   const paper = shuffledPapers[idx];
   const label = `Paper ${idx + 1}`;
   const ps = paperState[paper.id];
+  const postSubmitHidden = ps.q1Submitted ? '' : 'hidden';
 
   return `
     <div class="page">
       ${renderProgressBar(idx + 2, TOTAL_SCREENS)}
       ${renderInstructionCard('', `<p class="t-body">Read the excerpt below and mark which reporting criteria are present.</p>`)}
       ${renderPaperExcerpt(paper, label)}
-      ${renderChecklist(paper.id, ps.q1Submitted)}
+      ${renderChecklist(paper.id)}
       ${renderQ1(paper.id)}
-      ${ps.q1Submitted ? renderConclusionBlock(paper.conclusion) + renderQ3Q2(paper.id) : ''}
+      <div class="${postSubmitHidden}" id="post-submit-${paper.id}">
+        ${renderConclusionBlock(paper.conclusion)}
+        ${renderQ3Q2(paper.id)}
+      </div>
     </div>`;
 }
 
@@ -864,7 +1024,75 @@ function selectQ1(paperId, value) {
 
 function submitQ1(paperId) {
   paperState[paperId].q1Submitted = true;
-  render();
+  applyQ1Submitted(paperId);
+
+  // Smooth-scroll the feedback box into view. It sits directly below the
+  // Q1 options, so landing the eye there primes the user for the conclusion
+  // and Q2/Q3 that just appeared underneath.
+  const feedback = document.getElementById(`q1-feedback-${paperId}`);
+  if (feedback) {
+    requestAnimationFrame(() => {
+      feedback.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }
+}
+
+// Apply post-submit visuals via DOM manipulation — no full re-render.
+// Called from submitQ1, which has just flipped paperState[id].q1Submitted.
+function applyQ1Submitted(paperId) {
+  const paper = PAPERS.find(p => p.id === paperId);
+  const ps = paperState[paperId];
+
+  // Checklist: lock checkboxes, reveal badges, and color only the wrong rows.
+  // Badge content is (re)written from CURRENT state — it was baked into the
+  // DOM at screen-render time with all-unchecked state, so revealing it
+  // as-is would show stale labels.
+  CHECKLIST_CRITERIA.forEach(c => {
+    const checked = checklists[paperId][c.id];
+    const correct = paper.correctChecklist[c.id];
+    const isMatch = checked === correct;
+
+    const row     = document.getElementById(`row-${paperId}-${c.id}`);
+    const badgeEl = document.getElementById(`badge-${paperId}-${c.id}`);
+    if (!row) return;
+
+    const cb = row.querySelector('input[type=checkbox]');
+    if (cb) cb.disabled = true;
+
+    if (badgeEl) {
+      const badge = getChecklistBadge(checked, correct);
+      badgeEl.textContent = badge.text;
+      badgeEl.classList.remove('badge-green', 'badge-red');
+      badgeEl.classList.add(badge.cls);
+      badgeEl.classList.remove('hidden');
+    }
+
+    if (!isMatch) {
+      row.style.borderColor = '#D32F2F';
+      row.style.background  = '#FFF0F0';
+    }
+  });
+
+  // Q1 options: disable, swap selected → correct/incorrect classes.
+  Q1_OPTIONS.forEach(opt => {
+    const optEl = document.getElementById(`q1opt-${paperId}-${opt.value}`);
+    if (!optEl) return;
+    const input = optEl.querySelector('input');
+    if (input) input.disabled = true;
+    optEl.classList.remove('selected');
+    if (opt.value === paper.q1Correct) optEl.classList.add('correct');
+    else if (opt.value === ps.q1)      optEl.classList.add('incorrect');
+  });
+
+  // Reveal feedback, hide submit row, reveal post-submit section.
+  const feedback  = document.getElementById(`q1-feedback-${paperId}`);
+  const submitRow = document.getElementById(`q1-submit-row-${paperId}`);
+  const postSub   = document.getElementById(`post-submit-${paperId}`);
+  if (feedback)  feedback.classList.remove('hidden');
+  if (submitRow) submitRow.classList.add('hidden');
+  if (postSub)   postSub.classList.remove('hidden');
+
+  updateNavBar();
 }
 
 function selectQ3(paperId, value) {
@@ -885,9 +1113,16 @@ function toggleAccordion(id) {
   render();
 }
 
-function toggleOthers(paperId) {
-  othersOpen[paperId] = !othersOpen[paperId];
-  render();
+function switchCommentsTab(paperId, tabValue) {
+  // Toggle active class on tab buttons (in-place, no re-render).
+  document.querySelectorAll(`.comments-tab[data-paper="${paperId}"]`).forEach(el => {
+    el.classList.toggle('active', el.dataset.tab === tabValue);
+  });
+  // Toggle panel visibility.
+  ['yes', 'no'].forEach(v => {
+    const panel = document.getElementById(`comments-${paperId}-${v}`);
+    if (panel) panel.classList.toggle('hidden', v !== tabValue);
+  });
 }
 
 // ============================================================================
