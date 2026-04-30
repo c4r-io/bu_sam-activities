@@ -129,6 +129,10 @@
   }
   .yn-option input { accent-color: #6F00FF; flex-shrink: 0; }
   .yn-option.selected  { border-color: #6F00FF; background: rgba(111,0,255,0.08); }
+  .yn-option.correct   { border-color: #2E7D32; background: rgba(46,125,50,0.08); color: #2E7D32; }
+  .yn-option.incorrect { border-color: #D32F2F; background: rgba(211,47,47,0.08); color: #D32F2F; }
+  .yn-option.disabled  { cursor: default; }
+  .yn-option.disabled:hover { transform: none; }
 
   /* ── FEEDBACK BOX ── */
   .feedback-box {
@@ -456,6 +460,7 @@ const PAPERS = [
     correctChecklist: { c1: true, c2: true, c3: true, c4: true },
     q1Correct: 'thorough', q3Correct: 'yes',
     q1Feedback: 'All four reporting elements are present and limitations are disclosed honestly, a mark of thorough reporting.',
+    q3Feedback: 'The authors hedge their conclusion to match what an underpowered sample can support, recommending replication before treating the result as conclusive.',
   },
   {
     id: 'B', tag: 'Rodent study',
@@ -464,6 +469,7 @@ const PAPERS = [
     correctChecklist: { c1: false, c2: false, c3: false, c4: true },
     q1Correct: 'insufficient', q3Correct: 'no',
     q1Feedback: 'Several key reporting elements are missing. There is no power analysis or effect size rationale, and the exclusion is unexplained.',
+    q3Feedback: 'A claim that Protein X is a reliable biomarker and a viable therapeutic target reaches well beyond what n=12 per group with no power justification can support — particularly when one exclusion is unexplained.',
   },
   {
     id: 'C', tag: 'Human longitudinal study',
@@ -472,6 +478,7 @@ const PAPERS = [
     correctChecklist: { c1: false, c2: true, c3: true, c4: true },
     q1Correct: 'needs_improvement', q3Correct: 'no',
     q1Feedback: 'Prior literature is cited and attrition is reported, but without a power analysis or pre-specified exclusion criteria, the reporting needs improvement.',
+    q3Feedback: 'Calling Protein X a "validated" longevity biomarker is too strong given n=8, post-hoc exclusion criteria, and 50% attrition over the study window.',
   },
   {
     id: 'D', tag: 'Cross-species sequencing study (mouse & primate)',
@@ -480,6 +487,7 @@ const PAPERS = [
     correctChecklist: { c1: true, c2: true, c3: true, c4: true },
     q1Correct: 'thorough', q3Correct: 'yes',
     q1Feedback: 'Every key reporting element is present.',
+    q3Feedback: 'The "candidate biomarker pathway" framing matches what a well-powered, pre-registered study with 80% power can support, and the authors flag the need for functional validation in larger cohorts.',
   },
 ];
 
@@ -509,7 +517,7 @@ const paperState = {};
 PAPERS.forEach(p => {
   checklists[p.id] = {};
   CHECKLIST_CRITERIA.forEach(c => { checklists[p.id][c.id] = false; });
-  paperState[p.id] = { q1: '', q3: '', q2: '', q1Submitted: false };
+  paperState[p.id] = { q1: '', q3: '', q2: '', q1Submitted: false, q3Submitted: false };
 });
 
 // summary accordion state
@@ -679,26 +687,42 @@ function renderQ1(paperId) {
 function renderQ3Q2(paperId) {
   const ps = paperState[paperId];
   const paper = PAPERS.find(p => p.id === paperId);
+  const submitted = ps.q3Submitted;
 
   let ynOpts = '';
   Q3_OPTIONS.forEach(opt => {
-    const cls = 'yn-option' + (opt.value === ps.q3 ? ' selected' : '');
-    const checkedAttr = opt.value === ps.q3 ? 'checked' : '';
+    let cls = 'yn-option';
+    if (submitted) {
+      cls += ' disabled';
+      if (opt.value === paper.q3Correct)      cls += ' correct';
+      else if (opt.value === ps.q3)           cls += ' incorrect';
+    } else if (opt.value === ps.q3) {
+      cls += ' selected';
+    }
+    const checkedAttr  = opt.value === ps.q3 ? 'checked' : '';
+    const disabledAttr = submitted ? 'disabled' : '';
     ynOpts += `
-      <label class="${cls}">
-        <input type="radio" name="q3_${paperId}" value="${opt.value}" ${checkedAttr}
+      <label class="${cls}" id="q3opt-${paperId}-${opt.value}">
+        <input type="radio" name="q3_${paperId}" value="${opt.value}" ${checkedAttr} ${disabledAttr}
           onchange="selectQ3('${paperId}','${opt.value}')" />
         ${esc(opt.label)}
       </label>`;
   });
 
+  // Feedback box and Q2 textarea are always in the DOM. Whichever isn't
+  // relevant to the current state gets .hidden — same pattern as Q1.
+  const postPickHidden = submitted ? '' : 'hidden';
+
   return `
     <div class="panel mb-20 gap-20">
       <div>
-        <p class="t-sub mb-12">2. Are the conclusions appropriately scoped given what has been reported about the sample size?</p>
+        <p class="t-sub mb-12">2. Given the sample-size reporting, are the conclusions appropriately scoped?</p>
         <div class="yn-wrap">${ynOpts}</div>
+        <div class="feedback-box ${postPickHidden}" id="q3-feedback-${paperId}">
+          <p class="t-caption">${esc(paper.q3Feedback || '')}</p>
+        </div>
       </div>
-      <div>
+      <div class="${postPickHidden}" id="q2-wrap-${paperId}">
         <p class="t-sub mb-12">3. Based on the sample size reporting and conclusions, what comments or concerns do you have about the rigor of this study?</p>
         <textarea rows="4" placeholder="Type your response here…"
           oninput="updateQ2('${paperId}',this.value)">${esc(ps.q2)}</textarea>
@@ -759,22 +783,34 @@ function renderSummaryCardContent(paper) {
     return labels.map(l => `<li class="reporting-li ${kind}">${esc(l)}</li>`).join('');
   };
 
-  // ── Yes/No bar chart with "Your pick" badge on the user's row.
-  const allVotes = [...placeholders.q3, ps.q3].filter(Boolean);
+  // ── Bar chart helper. Shared by Q1 (reporting quality) and Q3 (Yes/No).
+  // `options` is the option list, `votes` is the combined vote array
+  // (placeholders + user), `correctValue` flags ✓ on the right answer,
+  // `userValue` paints the "Your pick" badge.
+  const renderBarChart = (options, votes, correctValue, userValue) => {
+    return options.map(opt => {
+      const count  = countResponses(votes, opt.value);
+      const pct    = votes.length ? Math.round((count / votes.length) * 100) : 0;
+      const isCor  = opt.value === correctValue;
+      const isUser = opt.value === userValue;
+      return `
+        <div class="tally-row">
+          <span class="tally-label ${isCor ? 'correct' : ''}">${esc(opt.label)}${isCor ? ' ✓' : ''}</span>
+          ${isUser ? '<span class="your-pick-badge">Your pick</span>' : ''}
+          <div class="tally-track"><div class="tally-fill ${isCor ? 'correct' : ''}" style="width:${pct}%"></div></div>
+          <span class="tally-pct">${pct}%</span>
+        </div>`;
+    }).join('');
+  };
+
+  // ── Q1 reporting-quality bar chart.
+  const q1Votes = [...placeholders.q1, ps.q1].filter(Boolean);
+  const q1Bars  = renderBarChart(Q1_OPTIONS, q1Votes, paper.q1Correct, ps.q1);
+
+  // ── Q3 Yes/No bar chart.
+  const q3Votes = [...placeholders.q3, ps.q3].filter(Boolean);
   const userVote = ps.q3;
-  const barRows = Q3_OPTIONS.map(opt => {
-    const count = countResponses(allVotes, opt.value);
-    const pct   = allVotes.length ? Math.round((count / allVotes.length) * 100) : 0;
-    const isCor  = opt.value === paper.q3Correct;
-    const isUser = opt.value === userVote;
-    return `
-      <div class="tally-row">
-        <span class="tally-label ${isCor ? 'correct' : ''}">${esc(opt.label)}${isCor ? ' ✓' : ''}</span>
-        ${isUser ? '<span class="your-pick-badge">Your pick</span>' : ''}
-        <div class="tally-track"><div class="tally-fill ${isCor ? 'correct' : ''}" style="width:${pct}%"></div></div>
-        <span class="tally-pct">${pct}%</span>
-      </div>`;
-  }).join('');
+  const q3Bars  = renderBarChart(Q3_OPTIONS, q3Votes, paper.q3Correct, userVote);
 
   // ── Comments tabs. Default tab = user's own pick.
   const yesComments = buildCommentsForVote(paper, 'yes');
@@ -822,14 +858,18 @@ function renderSummaryCardContent(paper) {
       </div>
     </div>
     <div>
+      <p class="section-label">How would you rate the reporting quality of this paper?</p>
+      ${q1Bars}
+    </div>
+    <div>
       <p class="section-label">Authors' conclusion</p>
       <div class="conclusion-block">
         <p class="t-body" style="font-size:0.9rem">${esc(paper.conclusion)}</p>
       </div>
     </div>
     <div style="margin-top:-8px">
-      <p class="section-label">Were conclusions appropriately scoped?</p>
-      ${barRows}
+      <p class="section-label">Given the sample-size reporting, are the conclusions appropriately scoped?</p>
+      ${q3Bars}
     </div>
     <div>
       <p class="section-label">Comments by response</p>
@@ -1096,10 +1136,32 @@ function applyQ1Submitted(paperId) {
 }
 
 function selectQ3(paperId, value) {
-  paperState[paperId].q3 = value;
-  document.querySelectorAll(`input[name="q3_${paperId}"]`).forEach(inp => {
-    inp.closest('.yn-option').classList.toggle('selected', inp.value === value);
+  const ps = paperState[paperId];
+  // Guard: ignore further clicks once committed.
+  if (ps.q3Submitted) return;
+
+  const paper = PAPERS.find(p => p.id === paperId);
+  ps.q3 = value;
+  ps.q3Submitted = true;
+
+  // Lock both options, paint correctness colors, disable inputs.
+  Q3_OPTIONS.forEach(opt => {
+    const optEl = document.getElementById(`q3opt-${paperId}-${opt.value}`);
+    if (!optEl) return;
+    const input = optEl.querySelector('input');
+    if (input) input.disabled = true;
+    optEl.classList.remove('selected');
+    optEl.classList.add('disabled');
+    if (opt.value === paper.q3Correct)  optEl.classList.add('correct');
+    else if (opt.value === value)       optEl.classList.add('incorrect');
   });
+
+  // Reveal feedback paragraph + Q2 textarea in place.
+  const feedback = document.getElementById(`q3-feedback-${paperId}`);
+  const q2Wrap   = document.getElementById(`q2-wrap-${paperId}`);
+  if (feedback) feedback.classList.remove('hidden');
+  if (q2Wrap)   q2Wrap.classList.remove('hidden');
+
   updateNavBar();
 }
 
