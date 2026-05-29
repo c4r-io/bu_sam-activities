@@ -108,7 +108,7 @@ make_neuron_panel <- function(df, dpi = view_dpi,
   out
 }
 
-neuron_B <- make_neuron_panel(dat_A, dpi = plot_dpi, 
+neuron_B <- make_neuron_panel(dat_B, dpi = plot_dpi, 
                               dot_color = color_green)
 plot_width <- 5 # inches
 plot_height <- 2.2 # inches
