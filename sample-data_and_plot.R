@@ -1,6 +1,7 @@
 # read in both datasets
 pilot <- read.csv("pilot.csv")
-orig <- read.csv("sample_size.csv")
+orig <- read.csv("sample_size.csv", header = FALSE)
+names(orig) <- c("Biomarker", "Lifespan")
 
 # target correlation to match previous activity example data
 target_rho <- cor(pilot$biomarker, pilot$lifespan)
@@ -102,14 +103,16 @@ c4r_geom_textsize <- function(fontsize = 14, plot_dpi = 300) {
 
 ## make plots ----
 make_lifespan_biomarker_panel <- function(df, dpi = view_dpi, 
-                                          include_regression = FALSE)
+                                          include_regression = FALSE, 
+                                          x_range = c(-2.5, 2.5), y_range = c(55, 95), 
+                                          pt_size = 3)
 {
   out <- df %>%
     ggplot(aes(x = Biomarker, y = Lifespan)) + 
-    geom_point(size = 3, alpha = 0.8, color = color_purple) + 
+    geom_point(size = pt_size, alpha = 0.8, color = color_purple) + 
     theme_c4r(plot_dpi = dpi) + 
-    scale_x_continuous(limits = c(-2.5, 2.5)) +
-    coord_cartesian(xlim = c(-2.5, 2.5), ylim = c(55, 95))
+    scale_x_continuous(limits = x_range) +
+    coord_cartesian(xlim = x_range, ylim = y_range)
   
   if (include_regression)
   {
@@ -173,4 +176,24 @@ ggsave(
   units = "in",
   dpi = plot_dpi
 )
+
+df_1000 <- orig[1:1000,]
+p <- make_lifespan_biomarker_panel(df_1000, dpi = plot_dpi, 
+                                   include_regression = TRUE, 
+                                   x_range = c(-3.5, 3.5), y_range = c(50, 100), 
+                                   pt_size = 1.5)
+plot_width <- 5 # inches
+plot_height <- 4 # inches
+
+ggsave(
+  "plot_lifespan_biomarker_n-1000_line.png",
+  p,
+  width = plot_width,
+  height = plot_height,
+  units = "in",
+  dpi = plot_dpi
+)
+
+model <- lm(Lifespan ~ Biomarker, data = df_1000)
+summary(model)
 
