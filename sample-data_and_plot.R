@@ -1,5 +1,6 @@
 # read in both datasets
 pilot <- read.csv("pilot.csv")
+names(pilot) <- c("Biomarker", "Lifespan")
 orig <- read.csv("sample_size.csv", header = FALSE)
 names(orig) <- c("Biomarker", "Lifespan")
 
@@ -26,7 +27,6 @@ for(i in 1:num_runs)
   }
 }
 names(best_d) <- c("Biomarker", "Lifespan")
-write.csv(best_d, "pilot_n-20.csv", row.names = FALSE)
 
 ## define plotting styles ----
 library(tidyverse)
@@ -105,6 +105,7 @@ c4r_geom_textsize <- function(fontsize = 14, plot_dpi = 300) {
 make_lifespan_biomarker_panel <- function(df, dpi = view_dpi, 
                                           include_regression = FALSE, 
                                           x_range = c(-2.5, 2.5), y_range = c(55, 95), 
+                                          y_breaks = c(60, 70, 80, 90), 
                                           pt_size = 3)
 {
   out <- df %>%
@@ -112,6 +113,7 @@ make_lifespan_biomarker_panel <- function(df, dpi = view_dpi,
     geom_point(size = pt_size, alpha = 0.8, color = color_purple) + 
     theme_c4r(plot_dpi = dpi) + 
     scale_x_continuous(limits = x_range) +
+    scale_y_continuous(breaks = y_breaks) + 
     coord_cartesian(xlim = x_range, ylim = y_range)
   
   if (include_regression)
@@ -122,8 +124,12 @@ make_lifespan_biomarker_panel <- function(df, dpi = view_dpi,
   out
 }
 
-make_lifespan_biomarker_panel(best_d)
-p <- make_lifespan_biomarker_panel(best_d, dpi = plot_dpi)
+df_20 <- read.csv("pilot_n-20_activity.csv")
+make_lifespan_biomarker_panel(df_20, x_range = c(-3, 3), 
+                              y_range = c(58, 87), y_breaks = c(60, 65, 70, 75, 80, 85))
+p <- make_lifespan_biomarker_panel(df_20, x_range = c(-3, 3), 
+                                   y_range = c(58, 87), y_breaks = c(60, 65, 70, 75, 80, 85), 
+                                   dpi = plot_dpi)
 plot_width <- 5 # inches
 plot_height <- 4 # inches
 
@@ -136,7 +142,9 @@ ggsave(
   dpi = plot_dpi
 )
 
-p <- make_lifespan_biomarker_panel(best_d, dpi = plot_dpi, include_regression = TRUE)
+p <- make_lifespan_biomarker_panel(df_20, x_range = c(-3, 3), 
+                                   y_range = c(58, 87), y_breaks = c(60, 65, 70, 75, 80, 85), 
+                                   dpi = plot_dpi, include_regression = TRUE)
 
 ggsave(
   "plot_lifespan_biomarker_n-20_r-0.1_line.png",

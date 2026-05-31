@@ -45,6 +45,10 @@ theme_c4r <- function(
         family = "JetBrains Mono",
         size = fontsize * plot_dpi / 96
       ),
+      plot.title = element_text(
+        family = "JetBrains Mono",
+        size = fontsize * plot_dpi / 96
+      ),
       
       # Strip (facets)
       strip.background = element_rect(
@@ -83,7 +87,8 @@ dat_B <- data.frame(value = rnorm(n, mean_B, sd_B))
 
 ## make plots ----
 make_neuron_panel <- function(df, dpi = view_dpi, 
-                              dot_color = color_purple)
+                              dot_color = color_purple, 
+                              title_text = "Group A")
 {
   mean_val <- mean(df$value)
   out <- df %>%
@@ -101,6 +106,7 @@ make_neuron_panel <- function(df, dpi = view_dpi,
              color = color_dk_grey) + 
     theme_c4r(plot_dpi = dpi) + 
     coord_cartesian(xlim = c(25, 75)) + 
+    ggtitle(title_text) + 
     xlab("Firing Rate (Hz)") + 
     theme(axis.text.y = element_blank(),
           axis.ticks.y = element_blank())
@@ -108,8 +114,24 @@ make_neuron_panel <- function(df, dpi = view_dpi,
   out
 }
 
+neuron_A <- make_neuron_panel(dat_A, dpi = plot_dpi, 
+                              dot_color = color_blue)
+plot_width <- 5 # inches
+plot_height <- 2.2 # inches
+
+ggsave(
+  "plot_neuron_A.png",
+  neuron_A, 
+  width = plot_width,
+  height = plot_height,
+  units = "in",
+  dpi = plot_dpi
+)
+
+
 neuron_B <- make_neuron_panel(dat_B, dpi = plot_dpi, 
-                              dot_color = color_green)
+                              dot_color = color_green, 
+                              title_text = "Group B")
 plot_width <- 5 # inches
 plot_height <- 2.2 # inches
 
